@@ -17,6 +17,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/developers', title: 'Developers', description: 'Plugin SDK + CLI cookbook + OpenAPI explorer + Terraform provider + Git integrations.' },
   { path: '/object-databases', title: 'Object databases', description: 'Storage topology: object rows, link edges, search projections, Funnel runs, indexes.' },
   { path: '/workflows', title: 'Workflows', description: 'Builder + run history + HITL approvals for event/cron/manual/webhook automations.' },
+  { path: '/ontology-design', title: 'Ontology design', description: 'Scorecard + anti-patterns + playbook + review notes for ontology quality.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },

@@ -370,3 +370,193 @@ export interface OntologyStorageInsights {
 export function getOntologyStorageInsights() {
   return api.get<OntologyStorageInsights>('/ontology/storage/insights');
 }
+
+// ────────────────────────────────────────────────────────────────
+// Link types, interfaces, action types, and projects — used by
+// /ontology-design (and incoming routes that touch the broader
+// ontology surface).
+// ────────────────────────────────────────────────────────────────
+
+export interface LinkType {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  source_type_id: string;
+  target_type_id: string;
+  cardinality: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OntologyInterface {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type OntologyProjectRole = 'viewer' | 'editor' | 'owner';
+
+export interface OntologyProject {
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string;
+  workspace_slug: string | null;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OntologyProjectMembership {
+  project_id: string;
+  user_id: string;
+  role: OntologyProjectRole;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ActionOperationKind =
+  | 'update_object'
+  | 'create_link'
+  | 'delete_object'
+  | 'invoke_function'
+  | 'invoke_webhook'
+  | 'create_interface'
+  | 'modify_interface'
+  | 'delete_interface'
+  | 'create_interface_link'
+  | 'delete_interface_link';
+
+export interface ActionInputField {
+  name: string;
+  display_name?: string | null;
+  description?: string | null;
+  property_type: string;
+  required: boolean;
+  default_value?: unknown;
+  struct_fields?: ActionInputField[];
+}
+
+export interface ActionFormCondition {
+  left: string;
+  operator: string;
+  right?: unknown;
+}
+
+export interface ActionFormSectionOverride {
+  conditions?: ActionFormCondition[];
+  hidden?: boolean;
+  columns?: number;
+  title?: string | null;
+  description?: string | null;
+}
+
+export interface ActionFormSection {
+  id: string;
+  title?: string | null;
+  description?: string | null;
+  columns?: number;
+  collapsible?: boolean;
+  visible?: boolean;
+  parameter_names?: string[];
+  overrides?: ActionFormSectionOverride[];
+}
+
+export interface ActionFormParameterOverride {
+  parameter_name: string;
+  conditions?: ActionFormCondition[];
+  hidden?: boolean;
+  required?: boolean;
+  default_value?: unknown;
+  display_name?: string | null;
+  description?: string | null;
+}
+
+export interface ActionFormSchema {
+  sections?: ActionFormSection[];
+  parameter_overrides?: ActionFormParameterOverride[];
+}
+
+export interface ActionAuthorizationPolicy {
+  required_permission_keys?: string[];
+  any_role?: string[];
+  all_roles?: string[];
+  attribute_equals?: Record<string, unknown>;
+  allowed_markings?: string[];
+  minimum_clearance?: string | null;
+  deny_guest_sessions?: boolean;
+}
+
+export interface ActionType {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  object_type_id: string;
+  operation_kind: ActionOperationKind;
+  input_schema: ActionInputField[];
+  form_schema: ActionFormSchema;
+  config: unknown;
+  confirmation_required: boolean;
+  permission_key: string | null;
+  authorization_policy: ActionAuthorizationPolicy;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listLinkTypes(params?: { object_type_id?: string; page?: number; per_page?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: LinkType[]; total: number }>(`/ontology/links?${qs}`);
+}
+
+export function listInterfaces(params?: { page?: number; per_page?: number; search?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  if (params?.search) qs.set('search', params.search);
+  return api.get<{ data: OntologyInterface[]; total: number; page: number; per_page: number }>(
+    `/ontology/interfaces?${qs}`,
+  );
+}
+
+export function listActionTypes(params?: {
+  object_type_id?: string;
+  page?: number;
+  per_page?: number;
+  search?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  if (params?.search) qs.set('search', params.search);
+  return api.get<{ data: ActionType[]; total: number; page: number; per_page: number }>(
+    `/ontology/actions?${qs}`,
+  );
+}
+
+export function listProjects(params?: { page?: number; per_page?: number; search?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  if (params?.search) qs.set('search', params.search);
+  return api.get<{ data: OntologyProject[]; total: number; page: number; per_page: number }>(
+    `/ontology/projects?${qs}`,
+  );
+}
+
+export function listProjectMemberships(id: string) {
+  return api
+    .get<{ data: OntologyProjectMembership[] }>(`/ontology/projects/${id}/memberships`)
+    .then((response) => response.data);
+}

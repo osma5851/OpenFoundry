@@ -111,6 +111,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/workflows/WorkflowsPage')).WorkflowsPage }),
       },
       {
+        path: 'ontology-design',
+        lazy: async () => ({ Component: (await import('./routes/ontology-design/OntologyDesignPage')).OntologyDesignPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
