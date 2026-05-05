@@ -10,9 +10,10 @@
 > code-repository-review + workflow-trace + event-streaming +
 > notebook-runtime + agent-runtime + model-deployment +
 > dataset-versioning + pipeline-build + authorization-policy +
-> audit-compliance + identity-federation + connector-management
-> consolidation). The live repository has **58 directories** under
-> `services/` (`ls services/ | wc -l`). S8 is now measured as
+> audit-compliance + identity-federation + connector-management +
+> ai-evaluation consolidation). The live repository has **56
+> directories** under `services/` (`ls services/ | wc -l`). S8 is
+> now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -57,7 +58,7 @@
 | Current crate | Target | Status | Notes |
 | ------------- | ------ | ------ | ----- |
 | `agent-runtime-service` | `agent-runtime-service` | keep | absorbs `tool-registry-service`, `conversation-state-service`, `prompt-workflow-service` |
-| `ai-application-generation-service` | `ai-evaluation-service` | merge → `ai-evaluation-service` | both share evaluation rig |
+| `ai-application-generation-service` | `ai-evaluation-service` | merged → `ai-evaluation-service` | S8 (B18): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `app_generation_*` tables, no production callers). Migration `20260427070400_app_generation_foundation.sql` preserved on the consolidated `pg-ai-eval` cluster. `AI_APPLICATION_GENERATION_SERVICE_URL` callers retargeted at `ai-evaluation-service:50075`. |
 | `ai-evaluation-service` | `ai-evaluation-service` | keep | also absorbs `mcp-orchestration-service` |
 | `ai-sink` | `ai-sink` | sink | Kafka → ML inference store |
 | `analytical-logic-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; reusable expressions now live in the internal `libs/analytical-logic` crate (no duplicated HTTP routes). `analytical_expressions` schema folded into `services/sql-bi-gateway-service/migrations/`. |
@@ -102,7 +103,7 @@
 | `managed-workspace-service` | `application-composition-service` | merge → `application-composition-service` | |
 | `marketplace-catalog-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `marketplace-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
-| `mcp-orchestration-service` | `ai-evaluation-service` | merge → `ai-evaluation-service` | |
+| `mcp-orchestration-service` | `ai-evaluation-service` | merged → `ai-evaluation-service` | S8 (B18): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `mcp_servers` / `mcp_tools`, no production callers). Migration preserved on `pg-ai-eval`. `MCP_ORCHESTRATION_SERVICE_URL` callers retargeted at `ai-evaluation-service:50075`. |
 | `media-sets-service` | `media-sets-service` | keep | Foundry media sets runtime; owns media set transactions, item metadata and presigned object-store access. |
 | `media-transform-runtime-service` | `media-transform-runtime-service` | keep | Sibling runtime to `media-sets-service` per ADR-0039: executes the typed image / audio / video / document / spreadsheet access patterns, bills compute-seconds, emits the `media_set.access_pattern_invoked` audit envelope. Kept as its own ownership boundary so the metadata plane (`media-sets-service`) and the compute plane scale and ship independently. |
 | `ml-experiments-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; experiments handler now re-exported by `model-catalog-service` from `libs/ml-kernel`. |
@@ -172,12 +173,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 15 |
-| merged → X (completed) | 41 |
+| merge → X (pending) | 13 |
+| merged → X (completed) | 43 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **58** |
+| **Total current service directories** | **56** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

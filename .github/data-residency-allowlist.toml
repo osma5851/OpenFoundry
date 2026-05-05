@@ -35,14 +35,9 @@ residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/agent-runtime-service/src/handlers.rs"], tables = ["agent_definitions", "agent_run_steps", "agent_runs"] }
 tables = ["ai_providers", "ai_prompt_templates", "ai_knowledge_bases", "ai_knowledge_documents", "ai_tools", "ai_agents", "ai_conversations", "ai_semantic_cache", "ai_llm_usage_events", "agent_definitions", "agent_runs", "agent_run_steps"]
 
-[[entries]]
-component = "services/ai-application-generation-service"
-service = "ai-application-generation-service"
-migration_dir = "services/ai-application-generation-service/migrations"
-schema = "ai_application_generation"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/ai-application-generation-service/src/handlers.rs"], tables = ["app_generation_events", "app_generation_seeds", "app_generation_sessions"] }
-tables = ["app_generation_seeds", "app_generation_sessions", "app_generation_events"]
+# S8 / ADR-0030 (B18): ai-application-generation-service merged →
+# ai-evaluation-service. Schemas absorbed; `pg-schemas` residency
+# preserved.
 
 [[entries]]
 component = "services/analytical-logic-service"
@@ -300,14 +295,9 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/marketplace-service/src/handlers/devops.rs", "services/marketplace-service/src/handlers/install.rs", "services/marketplace-service/src/handlers/mod.rs", "services/marketplace-service/src/handlers/publish.rs", "services/marketplace-service/src/handlers/reviews.rs"], tables = ["marketplace_enrollment_branches", "marketplace_fleet_promotion_gates", "marketplace_installs", "marketplace_listings", "marketplace_package_versions", "marketplace_product_fleets", "marketplace_reviews"] }
 tables = ["marketplace_listings", "marketplace_package_versions", "marketplace_reviews", "marketplace_installs", "marketplace_product_fleets", "marketplace_enrollment_branches", "marketplace_fleet_promotion_gates"]
 
-[[entries]]
-component = "services/mcp-orchestration-service"
-service = "mcp-orchestration-service"
-migration_dir = "services/mcp-orchestration-service/migrations"
-schema = "mcp_orchestration"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/mcp-orchestration-service/src/handlers.rs"], tables = ["mcp_servers", "mcp_tools"] }
-tables = ["mcp_servers", "mcp_tools"]
+# S8 / ADR-0030 (B18): mcp-orchestration-service merged →
+# ai-evaluation-service. Schemas absorbed; `pg-schemas` residency
+# preserved.
 
 [[entries]]
 component = "services/model-catalog-service"

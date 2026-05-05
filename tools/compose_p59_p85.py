@@ -18,7 +18,7 @@ SERVICES = [
     ("sdk-generation-service", 50144, "sdk_generation", "OPENFOUNDRY_SDK_GENERATION_HOST_PORT"),
     ("managed-workspace-service", 50145, "managed_workspace", "OPENFOUNDRY_MANAGED_WORKSPACE_HOST_PORT"),
     ("custom-endpoints-service", 50146, "custom_endpoints", "OPENFOUNDRY_CUSTOM_ENDPOINTS_HOST_PORT"),
-    ("mcp-orchestration-service", 50147, "mcp_orchestration", "OPENFOUNDRY_MCP_ORCHESTRATION_HOST_PORT"),
+    # `mcp-orchestration-service` (was 50147) merged → `ai-evaluation-service` per ADR-0030 (S8 / B18).
     ("compute-modules-control-plane-service", 50148, "compute_modules_control_plane", "OPENFOUNDRY_COMPUTE_MODULES_CONTROL_PLANE_HOST_PORT"),
     ("compute-modules-runtime-service", 50149, "compute_modules_runtime", "OPENFOUNDRY_COMPUTE_MODULES_RUNTIME_HOST_PORT"),
     ("monitoring-rules-service", 50150, "monitoring_rules", "OPENFOUNDRY_MONITORING_RULES_HOST_PORT"),

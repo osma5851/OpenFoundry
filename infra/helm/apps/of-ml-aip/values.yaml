@@ -224,35 +224,15 @@ services:
   # deployments/{id}/drift, batch-predictions}` HTTP surfaces now hit
   # `model-deployment-service`.
 
-  ai-application-generation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B18) — `ai-application-generation-service` and
+  # `mcp-orchestration-service` merged → `ai-evaluation-service`. Both
+  # sources were `tools/scaffold_p59_p85.py` placeholders (`fn main() {}`
+  # stubs, generic CRUD); the schemas (`app_generation_*`, `mcp_servers`,
+  # `mcp_tools`) are preserved on the consolidated `pg-ai-eval` cluster.
 
   # S8 / ADR-0030 — `conversation-state-service` merged →
   # `agent-runtime-service`. The source was a substrate-only shim
   # over `libs/ai-kernel`; agent-runtime-service is the runtime owner.
-
-  mcp-orchestration-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
 
   # S8 / ADR-0030 — `prompt-workflow-service` merged →
   # `agent-runtime-service`. The source was a substrate-only shim

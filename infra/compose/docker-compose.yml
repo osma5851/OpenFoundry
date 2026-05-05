@@ -869,24 +869,9 @@ services:
   # retrieval-context-service' migrations; downstream callers route to
   # http://retrieval-context-service:50098. ──
 
-  ai-application-generation-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/ai-application-generation-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50129
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ai_application_generation_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
-      AGENT_RUNTIME_SERVICE_URL: http://agent-runtime-service:50127
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_AI_APPLICATION_GENERATION_HOST_PORT:-50129}:50129"
+  # ── S8 / ADR-0030 (B18) — ai-application-generation-service merged →
+  # ai-evaluation-service. AI_APPLICATION_GENERATION_SERVICE_URL
+  # callers route to ai-evaluation-service:50075. ──
 
   # ── S8 / ADR-0030 — tabular-analysis-service merged into
   # sql-bi-gateway-service. Tabular analysis CRUD lives at
@@ -1137,22 +1122,9 @@ services:
     ports:
       - "${OPENFOUNDRY_CUSTOM_ENDPOINTS_HOST_PORT:-50146}:50146"
 
-  mcp-orchestration-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/mcp-orchestration-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50147
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_mcp_orchestration
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MCP_ORCHESTRATION_HOST_PORT:-50147}:50147"
+  # ── S8 / ADR-0030 (B18) — mcp-orchestration-service merged →
+  # ai-evaluation-service. MCP_ORCHESTRATION_SERVICE_URL callers
+  # route to ai-evaluation-service:50075. ──
 
   # S8 / ADR-0030 — `compute-modules-control-plane-service` and
   # `compute-modules-runtime-service` were `fn main() {}` stubs that
@@ -1900,7 +1872,8 @@ services:
       AGENT_RUNTIME_SERVICE_URL: http://agent-runtime-service:50127
       # S8 / ADR-0030: DOCUMENT_INTELLIGENCE_SERVICE_URL retired —
       # document-intelligence-service merged into retrieval-context-service (50098).
-      AI_APPLICATION_GENERATION_SERVICE_URL: http://ai-application-generation-service:50129
+      # S8 / ADR-0030 (B18): ai-application-generation-service merged → ai-evaluation-service.
+      AI_APPLICATION_GENERATION_SERVICE_URL: http://ai-evaluation-service:50075
       # S8 / ADR-0030: TABULAR_ANALYSIS_SERVICE_URL retired —
       # tabular-analysis CRUD is served by sql-bi-gateway-service (50133).
       TABULAR_ANALYSIS_SERVICE_URL: http://sql-bi-gateway-service:50133
@@ -1924,7 +1897,8 @@ services:
       SDK_GENERATION_SERVICE_URL: http://sdk-generation-service:50144
       MANAGED_WORKSPACE_SERVICE_URL: http://managed-workspace-service:50145
       CUSTOM_ENDPOINTS_SERVICE_URL: http://custom-endpoints-service:50146
-      MCP_ORCHESTRATION_SERVICE_URL: http://mcp-orchestration-service:50147
+      # S8 / ADR-0030 (B18): mcp-orchestration-service merged → ai-evaluation-service.
+      MCP_ORCHESTRATION_SERVICE_URL: http://ai-evaluation-service:50075
       # S8 / ADR-0030 — compute-modules-{control-plane,runtime}-service merged → pipeline-build-service.
       MONITORING_RULES_SERVICE_URL: http://monitoring-rules-service:50150
       EXECUTION_OBSERVABILITY_SERVICE_URL: http://execution-observability-service:50152
@@ -2022,8 +1996,7 @@ services:
       # S8 / ADR-0030 (B15): sds-service merged → audit-compliance-service.
       agent-runtime-service:
         condition: service_started
-      ai-application-generation-service:
-        condition: service_started
+      # S8 / ADR-0030 (B18): ai-application-generation-service merged → ai-evaluation-service.
       # S8 / ADR-0030: tabular-analysis-service merged into sql-bi-gateway-service.
       ontology-exploratory-analysis-service:
         condition: service_started
@@ -2046,8 +2019,7 @@ services:
         condition: service_started
       custom-endpoints-service:
         condition: service_started
-      mcp-orchestration-service:
-        condition: service_started
+      # S8 / ADR-0030 (B18): mcp-orchestration-service merged → ai-evaluation-service.
       monitoring-rules-service:
         condition: service_started
       execution-observability-service:

@@ -152,16 +152,9 @@ SERVICES_SPEC = [
         "custom_endpoints",
         "set_id UUID NOT NULL, path TEXT NOT NULL, method TEXT NOT NULL, target JSONB NOT NULL DEFAULT '{}'::jsonb",
     ),
-    (
-        "mcp-orchestration-service",
-        "MCP exposure of internal and ontological tools for agents, apps and external consumers",
-        50147,
-        "/api/v1/mcp/servers",
-        "mcp_servers",
-        "name TEXT NOT NULL, transport TEXT NOT NULL, config JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "mcp_tools",
-        "server_id UUID NOT NULL, name TEXT NOT NULL, schema JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `mcp-orchestration-service` (was port 50147, /api/v1/mcp/servers)
+    # merged → `ai-evaluation-service` per ADR-0030 (S8 / B18). Schema
+    # (`mcp_servers` / `mcp_tools`) preserved on `pg-ai-eval`.
     (
         "compute-modules-control-plane-service",
         "Compute modules control plane: lifecycle, deployment, replicas, diagnostics and config",

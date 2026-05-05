@@ -168,10 +168,8 @@
 
 # --- AI / ML / Models ---
 /services/agent-runtime-service/                        @open-foundry/ai-platform
-/services/ai-application-generation-service/            @open-foundry/ai-platform
 /services/ai-evaluation-service/                        @open-foundry/ai-platform
 /services/llm-catalog-service/                          @open-foundry/ai-platform
-/services/mcp-orchestration-service/                    @open-foundry/ai-platform
 /services/model-catalog-service/                        @open-foundry/ai-platform
 /services/model-deployment-service/                     @open-foundry/ai-platform
 /services/notebook-runtime-service/                     @open-foundry/ai-platform
