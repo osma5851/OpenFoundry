@@ -190,7 +190,6 @@
 /services/sql-warehousing-service/                      @open-foundry/data-platform
 /services/tabular-analysis-service/                     @open-foundry/data-platform @open-foundry/analytics-team
 /services/time-series-data-service/                     @open-foundry/data-platform
-/services/virtual-table-service/                        @open-foundry/data-platform
 /services/analytical-logic-service/                     @open-foundry/data-platform @open-foundry/analytics-team
 
 # --- Workflow / automation / notifications ---
@@ -224,8 +223,6 @@
 /services/authorization-policy-service/                 @open-foundry/security-team
 /services/code-security-scanning-service/               @open-foundry/security-team
 /services/identity-federation-service/                  @open-foundry/security-team
-/services/oauth-integration-service/                    @open-foundry/security-team
-/services/session-governance-service/                   @open-foundry/security-team
 /services/telemetry-governance-service/                 @open-foundry/security-team @open-foundry/observability-team
 
 # --- Platform runtime / observability / tenancy ---

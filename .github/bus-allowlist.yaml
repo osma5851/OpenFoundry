@@ -94,8 +94,7 @@ services:
     - control
   sql-bi-gateway-service:
     - control
-  virtual-table-service:
-    - control
+  # S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
   workflow-automation-service:
     - control
 

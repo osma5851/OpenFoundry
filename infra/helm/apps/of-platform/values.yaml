@@ -252,29 +252,11 @@ services:
   # live as library namespaces in the consolidated authorization-policy
   # binary; the runtime wiring into main is a follow-up.
 
-  session-governance-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  oauth-integration-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B16) — `session-governance-service` and
+  # `oauth-integration-service` (auth-side) merged →
+  # `identity-federation-service`. The data-side oauth modules
+  # (oauth_clients / applications / external_integrations) are
+  # currently co-located in identity-federation; extraction to
+  # connector-management-service is a follow-up. No standalone
+  # Deployments render here.
 

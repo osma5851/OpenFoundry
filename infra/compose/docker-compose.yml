@@ -622,23 +622,9 @@ services:
   # authorization-policy-service. CIPHER_SERVICE_URL callers route
   # to authorization-policy-service:50093. ──
 
-  session-governance-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/session-governance-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50074
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_SESSION_GOVERNANCE_HOST_PORT:-50074}:50074"
+  # ── S8 / ADR-0030 (B16) — session-governance-service merged →
+  # identity-federation-service. SESSION_GOVERNANCE_SERVICE_URL
+  # callers route to identity-federation-service:50112. ──
 
   authorization-policy-service:
     <<: *app-common
@@ -684,23 +670,11 @@ services:
     ports:
       - "${OPENFOUNDRY_TENANCY_ORGANIZATIONS_HOST_PORT:-50113}:50113"
 
-  oauth-integration-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/oauth-integration-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50094
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_OAUTH_INTEGRATION_HOST_PORT:-50094}:50094"
+  # ── S8 / ADR-0030 (B16) — oauth-integration-service merged →
+  # identity-federation-service (auth-side; data-side extraction
+  # to connector-management-service is a follow-up).
+  # OAUTH_INTEGRATION_SERVICE_URL callers route to
+  # identity-federation-service:50112. ──
 
   # ── S8 / ADR-0030 (B14) — network-boundary-service merged →
   # authorization-policy-service. NETWORK_BOUNDARY_SERVICE_URL
@@ -737,30 +711,9 @@ services:
     ports:
       - "${OPENFOUNDRY_CONNECTOR_MANAGEMENT_HOST_PORT:-50088}:50088"
 
-  virtual-table-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/virtual-table-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50089
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
-      DATASET_SERVICE_URL: http://dataset-versioning-service:50078
-      # S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
-      ALLOW_PRIVATE_NETWORK_EGRESS: "true"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      ontology-definition-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_VIRTUAL_TABLE_HOST_PORT:-50089}:50089"
+  # ── S8 / ADR-0030 (B17) — virtual-table-service merged →
+  # connector-management-service. VIRTUAL_TABLE_SERVICE_URL callers
+  # route to connector-management-service:50088. ──
 
   ingestion-replication-service:
     <<: *app-common
@@ -1856,17 +1809,20 @@ services:
       REDIS_URL: redis://valkey:6379
       AUTH_SERVICE_URL: http://identity-federation-service:50112
       IDENTITY_FEDERATION_SERVICE_URL: http://identity-federation-service:50112
-      SESSION_GOVERNANCE_SERVICE_URL: http://session-governance-service:50074
+      # S8 / ADR-0030 (B16): session-governance-service merged → identity-federation-service.
+      SESSION_GOVERNANCE_SERVICE_URL: http://identity-federation-service:50112
       AUTHORIZATION_POLICY_SERVICE_URL: http://authorization-policy-service:50093
       # S8 / ADR-0030 (B14): security-governance-service merged → authorization-policy-service.
       SECURITY_GOVERNANCE_SERVICE_URL: http://authorization-policy-service:50093
       TENANCY_ORGANIZATIONS_SERVICE_URL: http://tenancy-organizations-service:50113
-      OAUTH_INTEGRATION_SERVICE_URL: http://oauth-integration-service:50094
+      # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
+      OAUTH_INTEGRATION_SERVICE_URL: http://identity-federation-service:50112
       # S8 / ADR-0030 (B14): cipher-service merged → authorization-policy-service.
       CIPHER_SERVICE_URL: http://authorization-policy-service:50093
       DATA_CONNECTOR_SERVICE_URL: http://connector-management-service:50088
       CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service:50088
-      VIRTUAL_TABLE_SERVICE_URL: http://virtual-table-service:50089
+      # S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
+      VIRTUAL_TABLE_SERVICE_URL: http://connector-management-service:50088
       INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
       DATASET_VERSIONING_SERVICE_URL: http://dataset-versioning-service:50078
       # S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
@@ -1985,19 +1941,16 @@ services:
       identity-federation-service:
         condition: service_started
       # S8 / ADR-0030 (B14): cipher-service merged → authorization-policy-service.
-      session-governance-service:
-        condition: service_started
+      # S8 / ADR-0030 (B16): session-governance-service merged → identity-federation-service.
       authorization-policy-service:
         condition: service_started
       # S8 / ADR-0030 (B14): security-governance-service merged → authorization-policy-service.
       tenancy-organizations-service:
         condition: service_started
-      oauth-integration-service:
-        condition: service_started
+      # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
       connector-management-service:
         condition: service_started
-      virtual-table-service:
-        condition: service_started
+      # S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
       ingestion-replication-service:
         condition: service_started
       dataset-versioning-service:

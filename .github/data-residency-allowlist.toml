@@ -366,14 +366,10 @@ residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/notification-alerting-service/src/handlers/history.rs", "services/notification-alerting-service/src/handlers/send.rs"], tables = ["notification_deliveries", "notification_preferences", "notifications"] }
 tables = ["notifications", "notification_deliveries", "notification_preferences"]
 
-[[entries]]
-component = "services/oauth-integration-service"
-service = "oauth-integration-service"
-migration_dir = "services/oauth-integration-service/migrations"
-schema = "oauth_integration"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/oauth-integration-service/src/handlers/applications.rs", "services/oauth-integration-service/src/handlers/external_integrations.rs", "services/oauth-integration-service/src/handlers/oauth_clients.rs"], tables = ["oauth_application_credentials", "oauth_external_integrations", "oauth_inbound_clients", "oauth_registered_applications"] }
-tables = ["oauth_registered_applications", "oauth_application_credentials", "oauth_inbound_clients", "oauth_external_integrations"]
+# S8 / ADR-0030 (B16): oauth-integration-service merged →
+# identity-federation-service (auth-side; data-side extraction
+# to connector-management-service is a follow-up). Schemas absorbed
+# under the consolidated identity-federation entry.
 
 [[entries]]
 component = "services/pipeline-authoring-service"

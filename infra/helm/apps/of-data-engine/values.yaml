@@ -179,7 +179,8 @@ services:
       ICEBERG_CATALOG_PORT: "8197"
       ICEBERG_CATALOG_WAREHOUSE_URI: s3://openfoundry-iceberg
       IDENTITY_FEDERATION_URL: http://identity-federation-service:8080
-      OAUTH_INTEGRATION_URL: http://oauth-integration-service:8080
+      # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
+      OAUTH_INTEGRATION_URL: http://identity-federation-service:8080
     envSecrets:
       DATABASE_URL:
         secretName: pg-schemas-app
@@ -325,18 +326,8 @@ services:
     # pre-install Job (`templates/sql-bi-gateway-migrations.yaml`).
     enabled: false
 
-  virtual-table-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B17) — `virtual-table-service` merged →
+  # `connector-management-service`. No standalone Deployment here.
 
   time-series-data-service:
     replicas: 2

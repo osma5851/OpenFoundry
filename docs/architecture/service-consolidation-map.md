@@ -10,9 +10,9 @@
 > code-repository-review + workflow-trace + event-streaming +
 > notebook-runtime + agent-runtime + model-deployment +
 > dataset-versioning + pipeline-build + authorization-policy +
-> audit-compliance consolidation). The live repository has **61
-> directories** under `services/` (`ls services/ | wc -l`). S8 is
-> now measured as
+> audit-compliance + identity-federation + connector-management
+> consolidation). The live repository has **58 directories** under
+> `services/` (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -118,7 +118,7 @@
 | `nexus-service` | (legacy) | delete | retire after `tenancy-organizations-service` and `federation-product-exchange-service` confirmed |
 | `notebook-runtime-service` | `notebook-runtime-service` | keep | absorbs `document-reporting-service`, `spreadsheet-computation-service` |
 | `notification-alerting-service` | `notification-alerting-service` | keep | |
-| `oauth-integration-service` | split → `identity-federation-service` (auth) + `connector-management-service` (data OAuth) | merge | |
+| `oauth-integration-service` | split → `identity-federation-service` (auth) + `connector-management-service` (data OAuth) | merged → co-located in `identity-federation-service` | S8 (B16): directory removed; 32 source files (config, domain with api_keys/idp_mapping/jwt/mfa/oauth/rbac/saml/security, handlers with sso/api_key_mgmt/applications/oauth_clients/external_integrations, models, plus `clients_postgres` and `pending_auth_cassandra` substrates) absorbed under `services/identity-federation-service/src/oauth_integration/`. The map declares a logical split between auth-side and data-side, but the source code is co-located in identity-federation for now; the data-side extraction (oauth_clients, applications, external_integrations, clients_postgres, pending_auth_cassandra) into `connector-management-service::oauth_data` is queued as a follow-up. Migration `20260427010100_oauth_applications_and_integrations.sql` preserved on `pg-policy`. Edge gateway routing for `/api/v1/{oauth/clients,applications,external-integrations,api-keys,auth/sso}` retargeted at `identity-federation-service:50112`. |
 | `object-database-service` | `object-database-service` | keep | |
 | `ontology-actions-service` | `ontology-actions-service` | keep | sole runtime owner of the ontology action / funnel / function / rule HTTP surfaces; absorbed `ontology-funnel-service`, `ontology-functions-service`, `ontology-security-service` (S8.1) |
 | `ontology-definition-service` | `ontology-definition-service` | keep | |
@@ -143,7 +143,7 @@
 | `sdk-generation-service` | `sdk-generation-service` | keep | |
 | `sds-service` | `audit-compliance-service` | merged → `audit-compliance-service` | S8: directory removed; 8 source files (config, domain/sds, handlers/sds, models) absorbed under `services/audit-compliance-service/src/sds/`. Migration preserved on `pg-policy`. Edge gateway routing for `/api/v1/audit/sds` retargeted at `audit-compliance-service`. |
 | `security-governance-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 12 source files (config, domain, handlers/governance, models) absorbed under `services/authorization-policy-service/src/security_governance/`. Migration `20260427020100_security_governance_foundation.sql` preserved on `pg-policy`. The namespace's `AppState` carries `audit_db` and `policy_db` fields used by the governance reports + template handlers. `SECURITY_GOVERNANCE_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
-| `session-governance-service` | `identity-federation-service` | merge → `identity-federation-service` | |
+| `session-governance-service` | `identity-federation-service` | merged → `identity-federation-service` | S8 (B16): directory removed; 10 source files (config, domain, handlers, models, `revocation_cassandra`, `policy_postgres`) absorbed under `services/identity-federation-service/src/session_governance/`. No migrations (Cassandra-resident state). Edge gateway routing for `/api/v1/control-panel/*` and `/api/v2/admin/control-panel/*` retargeted at `identity-federation-service:50112`. |
 | `solution-design-service` | `solution-design-service` | keep | |
 | `spreadsheet-computation-service` | `notebook-runtime-service` | merged → `notebook-runtime-service` | S8: directory removed; source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `spreadsheet_sheets` / `spreadsheet_recalcs` with JSONB payloads, no production callers of `/api/v1/spreadsheets/*`). Migration `20260427070600_03_spreadsheet_sheets_foundation.sql` moved to `services/notebook-runtime-service/migrations/` so the schema remains on `notebook-pg`. Helm Deployment retired from `of-apps-ops`. |
 | `sql-bi-gateway-service` | `sql-bi-gateway-service` | keep | absorbs warehousing, tabular, analytical-logic |
@@ -152,7 +152,7 @@
 | `telemetry-governance-service` | `telemetry-governance-service` | keep | absorbs monitoring rules, health checks, execution observability |
 | `tenancy-organizations-service` | `tenancy-organizations-service` | keep | |
 | `time-series-data-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
-| `virtual-table-service` | `connector-management-service` | merge → `connector-management-service` | |
+| `virtual-table-service` | `connector-management-service` | merged → `connector-management-service` | S8 (B17): directory removed; 78 source files (config, connectors, domain with virtual_tables/iceberg_catalogs/capability_matrix, handlers, models, grpc, metrics) absorbed under `services/connector-management-service/src/virtual_table/`. 3 source migrations + 9 tests preserved on `pg-data-connector`. Source's `proto/virtual_tables/virtual_tables.proto` copied into target's `proto/` and compiled by the consolidated `build.rs`. Edge gateway routing for `/api/v1/connections/.../{discover,registrations,virtual-tables/query}` retargeted at `connector-management-service:50088`. |
 | `workflow-automation-service` | `workflow-automation-service` | keep | absorbs automation-operations, approvals |
 | `workflow-trace-service` | `lineage-service` | merged → `lineage-service` | S8: directory removed; source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD handlers, no production callers of `/api/v1/workflow-traces/*`). Migration `20260427070600_07_workflow_trace_runs_foundation.sql` moved to `services/lineage-service/migrations/` so the `workflow_trace_runs` / `workflow_trace_events` schemas remain on `lineage-pg`. Helm Deployment retired from `of-apps-ops`. |
 
@@ -172,12 +172,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 18 |
-| merged → X (completed) | 38 |
+| merge → X (pending) | 15 |
+| merged → X (completed) | 41 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **61** |
+| **Total current service directories** | **58** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

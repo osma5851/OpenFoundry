@@ -35,7 +35,10 @@ pub async fn proxy_handler(
         || path.starts_with("/api/v1/oauth/clients")
         || path.starts_with("/api/v1/external-integrations")
     {
-        &config.oauth_integration_service_url
+        // S8 / ADR-0030 (B16): oauth-integration-service merged →
+        // identity-federation-service (auth-side; data-side extraction
+        // to connector-management-service is a follow-up).
+        &config.identity_federation_service_url
     } else if path.starts_with("/api/v1/auth/register")
         || path.starts_with("/api/v1/auth/login")
         || path.starts_with("/api/v1/auth/refresh")
@@ -50,7 +53,8 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/control-panel")
         || path.starts_with("/api/v2/admin/control-panel")
     {
-        &config.session_governance_service_url
+        // S8 / ADR-0030 (B16): session-governance-service merged → identity-federation-service.
+        &config.identity_federation_service_url
     } else if path.starts_with("/api/v1/users/")
         && (path.contains("/roles") || path.contains("/groups"))
     {
@@ -139,7 +143,8 @@ pub async fn proxy_handler(
             || path.contains("/registrations")
             || path.ends_with("/virtual-tables/query"))
     {
-        &config.virtual_table_service_url
+        // S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
+        &config.connector_management_service_url
     } else if path.starts_with("/api/v1/connections/") && path.contains("/hyperauto/") {
         &config.connector_management_service_url
     } else if path.starts_with("/api/v1/connectors/catalog")
