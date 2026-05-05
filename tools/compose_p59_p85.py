@@ -21,8 +21,9 @@ SERVICES = [
     # `mcp-orchestration-service` (was 50147) merged → `ai-evaluation-service` per ADR-0030 (S8 / B18).
     ("compute-modules-control-plane-service", 50148, "compute_modules_control_plane", "OPENFOUNDRY_COMPUTE_MODULES_CONTROL_PLANE_HOST_PORT"),
     ("compute-modules-runtime-service", 50149, "compute_modules_runtime", "OPENFOUNDRY_COMPUTE_MODULES_RUNTIME_HOST_PORT"),
-    ("monitoring-rules-service", 50150, "monitoring_rules", "OPENFOUNDRY_MONITORING_RULES_HOST_PORT"),
-    ("execution-observability-service", 50152, "execution_observability", "OPENFOUNDRY_EXECUTION_OBSERVABILITY_HOST_PORT"),
+    # `monitoring-rules-service` (was 50150) and
+    # `execution-observability-service` (was 50152) merged →
+    # `telemetry-governance-service` per ADR-0030 (S8 / B22).
     ("telemetry-governance-service", 50153, "telemetry_governance", "OPENFOUNDRY_TELEMETRY_GOVERNANCE_HOST_PORT"),
     # `code-security-scanning-service` (was 50154) merged → `code-repository-review-service` per ADR-0030 (S8).
 ]

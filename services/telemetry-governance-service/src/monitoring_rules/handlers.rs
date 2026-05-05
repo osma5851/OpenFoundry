@@ -6,8 +6,8 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::models::{
+use crate::monitoring_rules::AppState;
+use crate::monitoring_rules::models::{
     ActionRuleKind, CreateActionRuleRequest, CreatePrimaryRequest, CreateSecondaryRequest,
     PrimaryItem, SecondaryItem,
 };

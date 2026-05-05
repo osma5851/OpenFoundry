@@ -21,7 +21,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::streaming_monitors::{MonitorKind, MonitorRule, MonitorRuleRow, ResourceType};
+use crate::monitoring_rules::streaming_monitors::{MonitorKind, MonitorRule, MonitorRuleRow, ResourceType};
 
 /// Errors a metric source can surface.
 #[derive(Debug, thiserror::Error)]
@@ -339,7 +339,7 @@ pub fn spawn_scheduler(
 
 #[cfg(test)]
 mod tests {
-    use crate::streaming_monitors::Comparator;
+    use crate::monitoring_rules::streaming_monitors::Comparator;
 
     #[test]
     fn comparator_evaluate_handles_lt_lte_gt_gte_eq() {

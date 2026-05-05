@@ -175,26 +175,9 @@ SERVICES_SPEC = [
         "compute_module_metrics",
         "run_id UUID NOT NULL, kind TEXT NOT NULL, value DOUBLE PRECISION NOT NULL",
     ),
-    (
-        "monitoring-rules-service",
-        "Monitoring rules engine: monitors, scopes, severities and subscribers at scale",
-        50150,
-        "/api/v1/monitoring/rules",
-        "monitoring_rules",
-        "name TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info', scope JSONB NOT NULL DEFAULT '{}'::jsonb, definition JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "monitoring_subscribers",
-        "rule_id UUID NOT NULL, channel TEXT NOT NULL, target TEXT NOT NULL",
-    ),
-    (
-        "execution-observability-service",
-        "Run history, log search, distributed tracing and execution debug",
-        50152,
-        "/api/v1/execution-observability/runs",
-        "execution_runs",
-        "source TEXT NOT NULL, run_ref TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "execution_logs",
-        "run_id UUID NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL, ts TIMESTAMPTZ NOT NULL DEFAULT now()",
-    ),
+    # `monitoring-rules-service` (was port 50150, /api/v1/monitoring/rules) and
+    # `execution-observability-service` (was port 50152, /api/v1/execution-observability/runs)
+    # merged → `telemetry-governance-service` per ADR-0030 (S8 / B22).
     (
         "telemetry-governance-service",
         "Telemetry permissions, log/metric/event export and governance policies",

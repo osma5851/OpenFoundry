@@ -11,9 +11,9 @@
 > notebook-runtime + agent-runtime + model-deployment +
 > dataset-versioning + pipeline-build + authorization-policy +
 > audit-compliance + identity-federation + connector-management +
-> ai-evaluation consolidation). The live repository has **56
-> directories** under `services/` (`ls services/ | wc -l`). S8 is
-> now measured as
+> ai-evaluation + telemetry-governance consolidation). The live
+> repository has **54 directories** under `services/`
+> (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -89,7 +89,7 @@
 | `edge-gateway-service` | `edge-gateway-service` | keep | |
 | `entity-resolution-service` | `entity-resolution-service` | keep | specialised matching |
 | `event-streaming-service` | `ingestion-replication-service` | merged → `ingestion-replication-service` | S8: directory removed; ~100 source files (`backends/`, `domain/`, `grpc/`, `handlers/`, `models/`, `outbox`, `router/`, `runtime/`, `storage/`) absorbed under `services/ingestion-replication-service/src/event_streaming/` preserving the source `AppState`. Cargo features merged: `kafka-rdkafka`, `kafka-it`, `rocksdb-state`, `flink-runtime`. 20 SQL migrations moved to `services/ingestion-replication-service/migrations/streaming/` (schema namespace `event_streaming` on `pg-schemas` preserved). 18 integration tests moved to `services/ingestion-replication-service/tests/`. `proto/streaming/{router,streams}.proto` now compiled with both server and client stubs by the consolidated build.rs. Helm Deployment retired from `of-data-engine`; `EVENT_STREAMING_SERVICE_URL` repointed at `ingestion-replication-service:50121`. The streaming runtime wiring into the consolidated binary's main is a follow-up. |
-| `execution-observability-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
+| `execution-observability-service` | `telemetry-governance-service` | merged → `telemetry-governance-service` | S8 (B22): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `execution_runs` / `execution_logs`). Migration preserved. `EXECUTION_OBSERVABILITY_SERVICE_URL` callers retargeted at `telemetry-governance-service:50153`. |
 | `federation-product-exchange-service` | `federation-product-exchange-service` | keep | absorbs `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` |
 | `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `global-branch-service` | `code-repository-review-service` | merged → `code-repository-review-service` | S8: directory removed; sources moved under `services/code-repository-review-service/src/global_branch/` (handlers, store, subscriber, model). Migration `20260504000031_global_branches.sql` folded into `services/code-repository-review-service/migrations/`. Helm Deployment retired from `of-apps-ops`. |
@@ -114,7 +114,7 @@
 | `model-inference-history-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (re-exported the same `predictions` modules as `model-serving-service`). Edge gateway routing for `/api/v1/ml/batch-predictions` retargeted at `model-deployment-service`. |
 | `model-lifecycle-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; `modeling_objectives` / `model_submissions` / `model_lifecycle_events` migrations folded into `services/model-catalog-service/migrations/`. No table-name collision with the target's `ml_*` tables. |
 | `model-serving-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (re-exported `predictions` modules; identical scaffold to `model-inference-history-service`). Edge gateway routing for `/api/v1/ml/deployments/{id}/predict` retargeted at `model-deployment-service`. |
-| `monitoring-rules-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
+| `monitoring-rules-service` | `telemetry-governance-service` | merged → `telemetry-governance-service` | S8 (B22): directory removed; 10 source files (config, evaluator, handlers, models, streaming_handlers, streaming_monitors) absorbed under `services/telemetry-governance-service/src/monitoring_rules/`. 2 source migrations preserved. `MONITORING_RULES_SERVICE_URL` callers retargeted at `telemetry-governance-service:50153`. |
 | `network-boundary-service` | `authorization-policy-service` | merged → `authorization-policy-service` | S8: directory removed; 8 source files (config, domain/boundary, handlers/boundary, models) absorbed under `services/authorization-policy-service/src/network_boundary/`. Migration `20260427080100_network_boundary_foundation.sql` preserved on `pg-policy`. `NETWORK_BOUNDARY_SERVICE_URL` callers retargeted at `authorization-policy-service:50093`. |
 | `nexus-service` | (legacy) | delete | retire after `tenancy-organizations-service` and `federation-product-exchange-service` confirmed |
 | `notebook-runtime-service` | `notebook-runtime-service` | keep | absorbs `document-reporting-service`, `spreadsheet-computation-service` |
@@ -173,12 +173,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 13 |
-| merged → X (completed) | 43 |
+| merge → X (pending) | 11 |
+| merged → X (completed) | 45 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **56** |
+| **Total current service directories** | **54** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

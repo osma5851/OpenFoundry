@@ -425,18 +425,8 @@ services:
   # (`notepad_documents` schema, `/api/v1/notepad/*` HTTP surface)
   # now lives in the notebook runtime; no Deployment renders here.
 
-  execution-observability-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B22) — `execution-observability-service` merged →
+  # `telemetry-governance-service`. No Deployment renders here.
 
   geospatial-intelligence-service:
     replicas: 2
@@ -490,18 +480,8 @@ services:
         cpu: "500m"
         memory: 512Mi
 
-  monitoring-rules-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B22) — `monitoring-rules-service` merged →
+  # `telemetry-governance-service`. No Deployment renders here.
 
   nexus-service:
     replicas: 2

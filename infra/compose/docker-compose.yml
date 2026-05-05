@@ -1132,39 +1132,10 @@ services:
   # `merged → pipeline-build-service`. Their compose blocks were removed
   # alongside the source directories.
 
-  monitoring-rules-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/monitoring-rules-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50150
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_monitoring_rules
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MONITORING_RULES_HOST_PORT:-50150}:50150"
-
-  execution-observability-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/execution-observability-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50152
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_execution_observability
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_EXECUTION_OBSERVABILITY_HOST_PORT:-50152}:50152"
+  # ── S8 / ADR-0030 (B22) — monitoring-rules-service and
+  # execution-observability-service merged → telemetry-governance-service.
+  # MONITORING_RULES_SERVICE_URL and EXECUTION_OBSERVABILITY_SERVICE_URL
+  # callers route to telemetry-governance-service:50153. ──
 
   telemetry-governance-service:
     <<: *app-common
@@ -1900,8 +1871,10 @@ services:
       # S8 / ADR-0030 (B18): mcp-orchestration-service merged → ai-evaluation-service.
       MCP_ORCHESTRATION_SERVICE_URL: http://ai-evaluation-service:50075
       # S8 / ADR-0030 — compute-modules-{control-plane,runtime}-service merged → pipeline-build-service.
-      MONITORING_RULES_SERVICE_URL: http://monitoring-rules-service:50150
-      EXECUTION_OBSERVABILITY_SERVICE_URL: http://execution-observability-service:50152
+      # S8 / ADR-0030 (B22): monitoring-rules-service merged → telemetry-governance-service.
+      MONITORING_RULES_SERVICE_URL: http://telemetry-governance-service:50153
+      # S8 / ADR-0030 (B22): execution-observability-service merged → telemetry-governance-service.
+      EXECUTION_OBSERVABILITY_SERVICE_URL: http://telemetry-governance-service:50153
       TELEMETRY_GOVERNANCE_SERVICE_URL: http://telemetry-governance-service:50153
       # S8 / ADR-0030 — code-security-scanning-service merged → code-repository-review-service.
       CODE_REPOSITORY_REVIEW_SERVICE_URL: http://code-repository-review-service:50155
@@ -2020,10 +1993,8 @@ services:
       custom-endpoints-service:
         condition: service_started
       # S8 / ADR-0030 (B18): mcp-orchestration-service merged → ai-evaluation-service.
-      monitoring-rules-service:
-        condition: service_started
-      execution-observability-service:
-        condition: service_started
+      # S8 / ADR-0030 (B22): monitoring-rules-service merged → telemetry-governance-service.
+      # S8 / ADR-0030 (B22): execution-observability-service merged → telemetry-governance-service.
       telemetry-governance-service:
         condition: service_started
       code-repository-review-service:

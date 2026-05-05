@@ -20,8 +20,8 @@ use axum::{
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::streaming_monitors::{
+use crate::monitoring_rules::AppState;
+use crate::monitoring_rules::streaming_monitors::{
     Comparator, CreateMonitorRuleRequest, CreateMonitoringViewRequest, MonitorEvaluation,
     MonitorKind, MonitorRule, MonitorRuleRow, MonitoringView, ResourceType, Severity,
 };

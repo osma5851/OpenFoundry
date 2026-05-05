@@ -225,7 +225,5 @@
 
 # --- Platform runtime / observability / tenancy ---
 /services/edge-gateway-service/                         @open-foundry/platform-runtime
-/services/execution-observability-service/              @open-foundry/observability-team @open-foundry/platform-runtime
 /services/managed-workspace-service/                    @open-foundry/platform-runtime
-/services/monitoring-rules-service/                     @open-foundry/observability-team
 /services/tenancy-organizations-service/                @open-foundry/platform-runtime @open-foundry/security-team

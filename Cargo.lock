@@ -4257,25 +4257,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "execution-observability-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "expect-test"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6962,27 +6943,6 @@ dependencies = [
  "portable-atomic",
  "smallvec",
  "tagptr",
- "uuid",
-]
-
-[[package]]
-name = "monitoring-rules-service"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -10798,6 +10758,7 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 name = "telemetry-governance-service"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "auth-middleware",
  "axum 0.8.9",
  "chrono",
@@ -10807,6 +10768,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",

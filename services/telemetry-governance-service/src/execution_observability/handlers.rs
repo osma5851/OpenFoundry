@@ -6,8 +6,8 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::models::{
+use crate::execution_observability::AppState;
+use crate::execution_observability::models::{
     CreatePrimaryRequest, CreateSecondaryRequest, PrimaryItem, SecondaryItem,
 };
 
