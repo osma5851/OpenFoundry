@@ -704,3 +704,102 @@ export function getMachineryQueue(params?: { object_type_id?: string }) {
 export function updateMachineryQueueItem(id: string, body: { status: string }) {
   return api.patch<MachineryQueueItem>(`/ontology/rules/machinery/queue/${id}`, body);
 }
+
+// ────────────────────────────────────────────────────────────────
+// Interface mutations + bindings — used by /interfaces.
+// ────────────────────────────────────────────────────────────────
+
+export interface InterfaceProperty {
+  id: string;
+  interface_id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  property_type: string;
+  required: boolean;
+  unique_constraint: boolean;
+  time_dependent: boolean;
+  default_value: unknown;
+  validation_rules: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ObjectTypeInterfaceBinding {
+  object_type_id: string;
+  interface_id: string;
+  created_at: string;
+}
+
+export function createInterface(body: { name: string; display_name?: string; description?: string }) {
+  return api.post<OntologyInterface>('/ontology/interfaces', body);
+}
+
+export function getInterface(id: string) {
+  return api.get<OntologyInterface>(`/ontology/interfaces/${id}`);
+}
+
+export function updateInterface(id: string, body: { display_name?: string; description?: string }) {
+  return api.patch<OntologyInterface>(`/ontology/interfaces/${id}`, body);
+}
+
+export function deleteInterface(id: string) {
+  return api.delete(`/ontology/interfaces/${id}`);
+}
+
+export function listInterfaceProperties(id: string) {
+  return api
+    .get<{ data: InterfaceProperty[] }>(`/ontology/interfaces/${id}/properties`)
+    .then((response) => response.data);
+}
+
+export function createInterfaceProperty(
+  id: string,
+  body: {
+    name: string;
+    display_name?: string;
+    description?: string;
+    property_type: string;
+    required?: boolean;
+    unique_constraint?: boolean;
+    time_dependent?: boolean;
+    default_value?: unknown;
+    validation_rules?: unknown;
+  },
+) {
+  return api.post<InterfaceProperty>(`/ontology/interfaces/${id}/properties`, body);
+}
+
+export function updateInterfaceProperty(
+  id: string,
+  propertyId: string,
+  body: {
+    display_name?: string;
+    description?: string;
+    required?: boolean;
+    unique_constraint?: boolean;
+    time_dependent?: boolean;
+    default_value?: unknown;
+    validation_rules?: unknown;
+  },
+) {
+  return api.patch<InterfaceProperty>(`/ontology/interfaces/${id}/properties/${propertyId}`, body);
+}
+
+export function deleteInterfaceProperty(id: string, propertyId: string) {
+  return api.delete(`/ontology/interfaces/${id}/properties/${propertyId}`);
+}
+
+export function listTypeInterfaces(typeId: string) {
+  return api
+    .get<{ data: OntologyInterface[] }>(`/ontology/types/${typeId}/interfaces`)
+    .then((response) => response.data);
+}
+
+export function attachInterfaceToType(typeId: string, interfaceId: string) {
+  return api.post<ObjectTypeInterfaceBinding>(`/ontology/types/${typeId}/interfaces/${interfaceId}`, {});
+}
+
+export function detachInterfaceFromType(typeId: string, interfaceId: string) {
+  return api.delete(`/ontology/types/${typeId}/interfaces/${interfaceId}`);
+}

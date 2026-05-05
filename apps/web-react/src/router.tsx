@@ -119,6 +119,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/dynamic-scheduling/DynamicSchedulingPage')).DynamicSchedulingPage }),
       },
       {
+        path: 'interfaces',
+        lazy: async () => ({ Component: (await import('./routes/interfaces/InterfacesPage')).InterfacesPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
