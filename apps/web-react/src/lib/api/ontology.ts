@@ -318,3 +318,55 @@ export function simulateObjectScenarios(
     body,
   );
 }
+
+// ────────────────────────────────────────────────────────────────
+// Storage insights — used by /object-databases. Reflects PostgreSQL
+// table metrics, index definitions, search projections, and runtime
+// activity timestamps from the ontology runtime.
+// ────────────────────────────────────────────────────────────────
+
+export interface OntologyStorageTableMetric {
+  key: string;
+  table_name: string;
+  label: string;
+  role: string;
+  record_count: number;
+}
+
+export interface OntologyStorageIndexDefinition {
+  table_name: string;
+  index_name: string;
+  index_definition: string;
+}
+
+export interface OntologyStorageDistributionMetric {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface OntologyStorageSearchKindMetric {
+  kind: string;
+  count: number;
+}
+
+export interface OntologyStorageInsights {
+  database_backend: string;
+  access_driver: string;
+  graph_projection: string;
+  search_projection: string;
+  funnel_runtime: string;
+  table_metrics: OntologyStorageTableMetric[];
+  index_definitions: OntologyStorageIndexDefinition[];
+  object_type_distribution: OntologyStorageDistributionMetric[];
+  link_type_distribution: OntologyStorageDistributionMetric[];
+  search_documents_total: number;
+  search_documents_by_kind: OntologyStorageSearchKindMetric[];
+  latest_object_write_at: string | null;
+  latest_link_write_at: string | null;
+  latest_funnel_run_at: string | null;
+}
+
+export function getOntologyStorageInsights() {
+  return api.get<OntologyStorageInsights>('/ontology/storage/insights');
+}
