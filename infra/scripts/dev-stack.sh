@@ -21,7 +21,6 @@ SERVICES=(
   notebook-runtime-service
   app-builder-service
   report-service
-  marketplace-service
   nexus-service
   notification-alerting-service
   gateway

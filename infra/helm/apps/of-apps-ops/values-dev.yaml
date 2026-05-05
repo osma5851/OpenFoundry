@@ -84,14 +84,8 @@ services:
         key: reader_url
   # S8 / ADR-0030 (B19): managed-workspace-service merged →
   # application-composition-service.
-  marketplace-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: marketplace-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: marketplace-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B21): marketplace-service merged →
+  # federation-product-exchange-service.
   # S8 / ADR-0030 (B22): monitoring-rules-service merged →
   # telemetry-governance-service.
   nexus-service:

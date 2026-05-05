@@ -1,5 +1,5 @@
 #[allow(dead_code)]
-#[path = "../../marketplace-service/src/models/mod.rs"]
+#[path = "../marketplace/models/mod.rs"]
 mod base;
 
 pub use base::*;

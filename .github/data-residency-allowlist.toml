@@ -262,14 +262,8 @@ tables = ["lineage_nodes", "lineage_relations"]
 # S8 / ADR-0030 (B19): managed-workspace-service merged →
 # application-composition-service. Schema absorbed.
 
-[[entries]]
-component = "services/marketplace-service"
-service = "marketplace-service"
-migration_dir = "services/marketplace-service/migrations"
-schema = "marketplace"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/marketplace-service/src/handlers/devops.rs", "services/marketplace-service/src/handlers/install.rs", "services/marketplace-service/src/handlers/mod.rs", "services/marketplace-service/src/handlers/publish.rs", "services/marketplace-service/src/handlers/reviews.rs"], tables = ["marketplace_enrollment_branches", "marketplace_fleet_promotion_gates", "marketplace_installs", "marketplace_listings", "marketplace_package_versions", "marketplace_product_fleets", "marketplace_reviews"] }
-tables = ["marketplace_listings", "marketplace_package_versions", "marketplace_reviews", "marketplace_installs", "marketplace_product_fleets", "marketplace_enrollment_branches", "marketplace_fleet_promotion_gates"]
+# S8 / ADR-0030 (B21): marketplace-service merged →
+# federation-product-exchange-service. Schemas absorbed.
 
 # S8 / ADR-0030 (B18): mcp-orchestration-service merged →
 # ai-evaluation-service. Schemas absorbed; `pg-schemas` residency

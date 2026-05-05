@@ -64,10 +64,8 @@ services:
     - control
   lineage-service:
     - control
-  marketplace-catalog-service:
-    - control
-  marketplace-service:
-    - control
+  # S8 / ADR-0030 (B21): marketplace-service and marketplace-catalog-service
+  # merged → federation-product-exchange-service.
   nexus-service:
     - control
   notebook-runtime-service:
@@ -86,8 +84,7 @@ services:
   # merged → pipeline-build-service.
   pipeline-build-service:
     - control
-  product-distribution-service:
-    - control
+  # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
   report-service:
     - control
   sql-bi-gateway-service:

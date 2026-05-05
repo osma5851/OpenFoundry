@@ -12,8 +12,9 @@
 > dataset-versioning + pipeline-build + authorization-policy +
 > audit-compliance + identity-federation + connector-management +
 > ai-evaluation + telemetry-governance + application-composition +
-> ontology-exploratory-analysis consolidation). The live repository
-> has **46 directories** under `services/`
+> ontology-exploratory-analysis + federation-product-exchange
+> consolidation — **all merge-pending rows now closed**). The live
+> repository has **43 directories** under `services/`
 > (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
@@ -102,8 +103,8 @@
 | `lineage-service` | `lineage-service` | keep | absorbs `workflow-trace-service` |
 | `llm-catalog-service` | `llm-catalog-service` | keep | |
 | `managed-workspace-service` | `application-composition-service` | merged → `application-composition-service` | S8 (B19): directory removed; `tools/scaffold_p59_p85.py` placeholder. Migration preserved on `pg-runtime-config`. `MANAGED_WORKSPACE_SERVICE_URL` callers retargeted at `application-composition-service:50140`. |
-| `marketplace-catalog-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
-| `marketplace-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
+| `marketplace-catalog-service` | `federation-product-exchange-service` | merged → `federation-product-exchange-service` | S8 (B21): directory removed; scaffold placeholder that re-exported marketplace's domain/handlers/models via `#[path]`. The path includes were rewritten to point at `../marketplace/` after the move. `MARKETPLACE_CATALOG_SERVICE_URL` callers retargeted at `federation-product-exchange-service:50120`. |
+| `marketplace-service` | `federation-product-exchange-service` | merged → `federation-product-exchange-service` | S8 (B21): directory removed; 36 source files (config, domain with package/install/devops/reviews/etc., handlers, models with marketplace listings/versions/installs/product_fleets/etc.) absorbed under `services/federation-product-exchange-service/src/marketplace/`. 6 source migrations preserved on `pg-schemas`. `MARKETPLACE_SERVICE_URL` callers retargeted at `federation-product-exchange-service:50120`. |
 | `mcp-orchestration-service` | `ai-evaluation-service` | merged → `ai-evaluation-service` | S8 (B18): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `mcp_servers` / `mcp_tools`, no production callers). Migration preserved on `pg-ai-eval`. `MCP_ORCHESTRATION_SERVICE_URL` callers retargeted at `ai-evaluation-service:50075`. |
 | `media-sets-service` | `media-sets-service` | keep | Foundry media sets runtime; owns media set transactions, item metadata and presigned object-store access. |
 | `media-transform-runtime-service` | `media-transform-runtime-service` | keep | Sibling runtime to `media-sets-service` per ADR-0039: executes the typed image / audio / video / document / spreadsheet access patterns, bills compute-seconds, emits the `media_set.access_pattern_invoked` audit envelope. Kept as its own ownership boundary so the metadata plane (`media-sets-service`) and the compute plane scale and ship independently. |
@@ -135,7 +136,7 @@
 | `pipeline-build-service` | `pipeline-build-service` | keep | absorbs authoring, schedule, compute modules |
 | `pipeline-runner` | `pipeline-runner` | image | Scala/SBT project (FASE 3 / Tarea 3.3) that builds the Spark/Iceberg image referenced by SparkApplication CRs launched by `pipeline-build-service`. **Not** a Rust workspace member, no service binary, no Helm Deployment of its own — it is a build artifact. Listed in `tools/regenerate_service_dockerfiles.py`'s `NON_RUST_SERVICES` skip set. |
 | `pipeline-schedule-service` | `pipeline-build-service` | merged → `pipeline-build-service` | S8: directory removed; 51 source files (config, domain with aip/build_client/cron_dispatch/cron_registrar/dispatcher/event_listener/run_store/schedule_store/trigger/troubleshoot, handlers, models) absorbed under `services/pipeline-build-service/src/pipeline_schedule/`. 4 source migrations preserved on `pg-pipeline`. The legacy filesystem-path includes that pipeline-schedule used to reach pipeline-authoring/lineage-service/workflow-automation-service rewritten to match the new layout. Edge gateway routing for `/api/v1/pipelines/triggers/cron/*` retargeted at `pipeline-build-service`. |
-| `product-distribution-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
+| `product-distribution-service` | `federation-product-exchange-service` | merged → `federation-product-exchange-service` | S8 (B21): directory removed; 6 source files (TASK O — action-type artifact import logic plus shims that re-exported marketplace's domain/handlers/models via `#[path]`). The path includes were rewritten to `../marketplace/`. `PRODUCT_DISTRIBUTION_SERVICE_URL` callers retargeted at `federation-product-exchange-service:50120`. |
 | `prompt-workflow-service` | `agent-runtime-service` | merged → `agent-runtime-service` | S8: directory removed; the source was a substrate-only crate (`fn main() {}` stub, `lib.rs`, `domain.rs`/`handlers.rs`/`models.rs` shims over `libs/ai-kernel`, plus a producer-specific `ai_events.rs` mirror that has been retired in favour of agent-runtime's own — both producers now share the `agent-runtime-` Kafka transactional-id prefix). Helm Deployment retired from `of-ml-aip`; Strimzi KafkaUser + transactional-id ACL for `prompt-workflow-` retired; `PROMPT_WORKFLOW_SERVICE_URL` callers retargeted at `agent-runtime-service:50127`. |
 | `reindex-coordinator-service` | `reindex-coordinator-service` | keep | Rust replacement (FASE 4 / Tarea 4.2) for the Go `workers-go/reindex` Temporal worker (ADR-0021). Owns the resume cursor in `pg-runtime-config.reindex_jobs`, drives Cassandra page-by-page scans via `cassandra-kernel`, and fans batches out to `services/ontology-indexer` over `ontology.reindex.v1`. Distinct ownership boundary (Postgres state + Temporal-replacement semantics) from the downstream `ontology-indexer` sink. |
 | `report-service` | (legacy) | delete | already covered by `document-reporting-service` |
@@ -174,12 +175,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 3 |
-| merged → X (completed) | 53 |
+| merge → X (pending) | 0 |
+| merged → X (completed) | 56 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **46** |
+| **Total current service directories** | **43** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

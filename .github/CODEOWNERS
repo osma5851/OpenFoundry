@@ -204,9 +204,6 @@
 /services/app-builder-service/                          @open-foundry/developer-platform @open-foundry/frontend-team
 /services/application-composition-service/              @open-foundry/developer-platform @open-foundry/frontend-team
 /services/code-repository-review-service/               @open-foundry/developer-platform
-/services/marketplace-catalog-service/                  @open-foundry/developer-platform
-/services/marketplace-service/                          @open-foundry/developer-platform
-/services/product-distribution-service/                 @open-foundry/developer-platform
 /services/sdk-generation-service/                       @open-foundry/developer-platform @open-foundry/architecture-council
 
 # --- Security / governance / identity ---

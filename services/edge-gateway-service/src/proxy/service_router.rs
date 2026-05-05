@@ -328,9 +328,11 @@ pub async fn proxy_handler(
     {
         &config.federation_product_exchange_service_url
     } else if path.starts_with("/api/v1/marketplace/devops") {
-        &config.product_distribution_service_url
+        // S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
+        &config.federation_product_exchange_service_url
     } else if path.starts_with("/api/v1/marketplace") {
-        &config.marketplace_catalog_service_url
+        // S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
+        &config.federation_product_exchange_service_url
     } else if path.starts_with("/api/v1/audit/sds") {
         // S8 / ADR-0030 (B15): sds-service merged → audit-compliance-service.
         &config.audit_compliance_service_url

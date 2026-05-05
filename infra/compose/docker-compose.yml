@@ -1457,69 +1457,10 @@ services:
     ports:
       - "${OPENFOUNDRY_REPORT_HOST_PORT:-50064}:50064"
 
-  marketplace-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/marketplace-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50066
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
-      DEVOPS_RECONCILER_INTERVAL_SECONDS: "300"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      app-builder-service:
-        condition: service_started
-
-  marketplace-catalog-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/marketplace-catalog-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50066
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
-    depends_on:
-      postgres:
-        condition: service_healthy
-      marketplace-service:
-        condition: service_started
-      app-builder-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_MARKETPLACE_CATALOG_HOST_PORT:-50066}:50066"
-
-  product-distribution-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/product-distribution-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50111
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
-      DEVOPS_RECONCILER_INTERVAL_SECONDS: "300"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      marketplace-service:
-        condition: service_started
-      app-builder-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_PRODUCT_DISTRIBUTION_HOST_PORT:-50111}:50111"
+  # ── S8 / ADR-0030 (B21) — marketplace-service, marketplace-catalog-service
+  # and product-distribution-service merged → federation-product-exchange-service.
+  # MARKETPLACE_CATALOG_SERVICE_URL and PRODUCT_DISTRIBUTION_SERVICE_URL
+  # callers route to federation-product-exchange-service:50120. ──
 
   federation-product-exchange-service:
     <<: *app-common
@@ -1538,10 +1479,8 @@ services:
         condition: service_healthy
       nexus-service:
         condition: service_started
-      marketplace-catalog-service:
-        condition: service_started
-      product-distribution-service:
-        condition: service_started
+      # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
+      # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
     ports:
       - "${OPENFOUNDRY_FEDERATION_PRODUCT_EXCHANGE_HOST_PORT:-50120}:50120"
 
@@ -1711,8 +1650,10 @@ services:
       REPORT_SERVICE_URL: http://report-service:50064
       # S8 / ADR-0030 — global-branch-service merged → code-repository-review-service.
       GLOBAL_BRANCH_SERVICE_URL: http://code-repository-review-service:50155
-      MARKETPLACE_CATALOG_SERVICE_URL: http://marketplace-catalog-service:50066
-      PRODUCT_DISTRIBUTION_SERVICE_URL: http://product-distribution-service:50111
+      # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
+      MARKETPLACE_CATALOG_SERVICE_URL: http://federation-product-exchange-service:50120
+      # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
+      PRODUCT_DISTRIBUTION_SERVICE_URL: http://federation-product-exchange-service:50120
       FEDERATION_PRODUCT_EXCHANGE_SERVICE_URL: http://federation-product-exchange-service:50120
       NEXUS_SERVICE_URL: http://nexus-service:50067
       # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
@@ -1837,10 +1778,8 @@ services:
       # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
       report-service:
         condition: service_started
-      marketplace-catalog-service:
-        condition: service_started
-      product-distribution-service:
-        condition: service_started
+      # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
+      # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
       federation-product-exchange-service:
         condition: service_started
       nexus-service:

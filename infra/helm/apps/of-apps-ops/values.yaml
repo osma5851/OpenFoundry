@@ -403,31 +403,9 @@ services:
   # S8 / ADR-0030 (B19) — `managed-workspace-service` merged →
   # `application-composition-service`. No Deployment renders here.
 
-  marketplace-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  marketplace-catalog-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B21) — `marketplace-service` and
+  # `marketplace-catalog-service` merged →
+  # `federation-product-exchange-service`. No Deployments render here.
 
   # S8 / ADR-0030 (B22) — `monitoring-rules-service` merged →
   # `telemetry-governance-service`. No Deployment renders here.
@@ -445,18 +423,8 @@ services:
         cpu: "500m"
         memory: 512Mi
 
-  product-distribution-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B21) — `product-distribution-service` merged →
+  # `federation-product-exchange-service`. No Deployment renders here.
 
   report-service:
     replicas: 2
