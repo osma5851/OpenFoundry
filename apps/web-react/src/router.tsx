@@ -75,6 +75,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/queries/QueriesPage')).QueriesPage }),
       },
       {
+        path: 'quiver',
+        lazy: async () => ({ Component: (await import('./routes/quiver/QuiverPage')).QuiverPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
