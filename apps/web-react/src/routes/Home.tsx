@@ -20,6 +20,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/ontology-design', title: 'Ontology design', description: 'Scorecard + anti-patterns + playbook + review notes for ontology quality.' },
   { path: '/dynamic-scheduling', title: 'Dynamic scheduling', description: 'Machinery queue board with capability rows, drag-staged moves, conflict detection.' },
   { path: '/interfaces', title: 'Interfaces', description: 'Interface library + property definitions + object-type implementation bindings.' },
+  { path: '/build-schedules', title: 'Build schedules', description: 'Find/manage schedules with file/user/project filters, name search, pause+sort.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },

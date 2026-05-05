@@ -123,6 +123,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/interfaces/InterfacesPage')).InterfacesPage }),
       },
       {
+        path: 'build-schedules',
+        lazy: async () => ({ Component: (await import('./routes/build-schedules/BuildSchedulesPage')).BuildSchedulesPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
