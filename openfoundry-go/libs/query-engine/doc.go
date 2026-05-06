@@ -1,25 +1,35 @@
-// Package queryengine is the placeholder for libs/query-engine in
-// the Go workspace. The Rust crate is a thin wrapper around
-// [Apache DataFusion] (its `SessionContext`, `DataFrame`,
-// `LogicalPlan`, plus an Arrow Flight SQL `TableProvider`) and is
-// not 1:1 portable to Go — the apache/arrow-go module ships only
-// the Arrow data layer; there is no Go port of the DataFusion SQL
-// engine.
+// Package queryengine ports `libs/query-engine/src/lib.rs` to Go.
 //
-// Resolving this lib is therefore blocked on a human decision (see
-// MIGRATION-LOOP-STATUS.md, item P4.8). The viable options are:
+// The Rust crate is a thin wrapper around DataFusion that
+// sql-bi-gateway-service uses for local SQL execution (the path that
+// runs `SELECT 1`-style probes from BI clients before any backend is
+// federated). Go has no production-quality DataFusion equivalent, so
+// this package provides a deliberately-minimal substitute: a literal
+// evaluator for the `SELECT <expr-list>` shape used by BI client
+// probes, returning Apache Arrow record batches.
 //
-//  1. Sidecar / FFI to the Rust crate (mirrors the pyo3 sidecar
-//     decision pending for notebook-runtime, pipeline-build,
-//     ontology-actions).
-//  2. Replace the engine with a different Go-native SQL surface
-//     (e.g. embedded DuckDB, or federate to an external Trino /
-//     Presto / Flight SQL endpoint). This is *not* a 1:1 port.
-//  3. Keep the Rust crate as the engine and have Go services consume
-//     it over gRPC / Flight SQL.
+// What it handles
 //
-// Until that decision is made, this package stays empty. The Rust
-// source under libs/query-engine/src/ is the source of truth.
+//	SELECT 1                  -> int64 [1] in one column
+//	SELECT 1, 2, 3            -> three int64 columns, one row each
+//	SELECT 1 + 1              -> int64 [2]
+//	SELECT 1.5 * 2            -> float64 [3.0]
+//	SELECT 'hello'            -> utf8  ["hello"]
+//	SELECT TRUE / FALSE       -> bool  [true|false]
+//	SELECT NULL               -> null array (logical type "null")
 //
-// [Apache DataFusion]: https://datafusion.apache.org/
+// What it rejects (returns [ErrUnsupportedLocalExecution])
+//
+//	SELECT * FROM <anything>  — needs a registered catalog
+//	WHERE / GROUP BY / JOIN   — needs a planner
+//	subqueries, CTEs          — same
+//
+// In production the gateway runs with `WAREHOUSING_FLIGHT_SQL_URL`
+// set, and statements that don't match the literal-SELECT subset get
+// forwarded to sql-warehousing-service over Flight SQL rather than
+// being executed here. The literal evaluator exists so BI-client
+// connection probes (Tableau, Superset, JDBC) succeed even when no
+// warehousing endpoint is configured — matching the Rust behaviour
+// where DataFusion folds `SELECT 1` into a single int64 batch
+// without touching any catalog.
 package queryengine
