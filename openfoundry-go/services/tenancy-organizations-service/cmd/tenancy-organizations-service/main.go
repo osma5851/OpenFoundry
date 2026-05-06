@@ -23,6 +23,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/server"
+	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/workspace"
 )
 
 var version = "dev"
@@ -61,9 +62,10 @@ func main() {
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
+	ws := &workspace.Handlers{Repo: &workspace.Repo{Pool: pool}}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics)
+	srv := server.New(cfg, jwt, h, ws, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

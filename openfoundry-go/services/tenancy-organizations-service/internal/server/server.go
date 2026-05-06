@@ -18,10 +18,11 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/workspace"
 )
 
-// New builds the http.Server for the foundation slice.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics) *http.Server {
+// New builds the http.Server for the foundation slice + workspace surface.
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ws *workspace.Handlers, m *observability.Metrics) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -44,6 +45,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/organizations/{id}/enrollments", h.ListEnrollments)
 		api.Post("/enrollments", h.CreateEnrollment)
 		api.Delete("/enrollments/{id}", h.DeleteEnrollment)
+
+		api.Route("/workspace", func(wr chi.Router) {
+			wr.Get("/favorites", ws.ListFavorites)
+			wr.Post("/favorites", ws.CreateFavorite)
+			wr.Delete("/favorites/{kind}/{id}", ws.DeleteFavorite)
+			wr.Get("/recents", ws.ListRecents)
+			wr.Post("/recents", ws.RecordAccess)
+		})
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
