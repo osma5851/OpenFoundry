@@ -21,6 +21,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/telemetry-governance-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/telemetry-governance-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/telemetry-governance-service/internal/repo"
+	"github.com/openfoundry/openfoundry-go/services/telemetry-governance-service/internal/streamingmonitors"
 )
 
 // New builds the http.Server with the four feature CRUD blocks mounted.
@@ -35,11 +36,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, pool *pgxpool.Pool, m *obser
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
+	smH := &streamingmonitors.Handlers{Repo: &streamingmonitors.Repo{Pool: pool}}
+
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 		for _, feature := range models.AllFeatures() {
 			mountFeature(api, pool, feature)
 		}
+		mountStreamingMonitors(api, smH)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -68,6 +72,24 @@ func mountFeature(api chi.Router, pool *pgxpool.Pool, ft models.FeatureTables) {
 		g.Get("/{id}", h.GetPrimary)
 		g.Get("/{id}/"+ft.SecondaryPath, h.ListSecondary)
 		g.Post("/{id}/"+ft.SecondaryPath, h.CreateSecondary)
+	})
+}
+
+// mountStreamingMonitors wires the Foundry-parity streaming-monitor
+// surface (Bloque P4) at /api/v1.
+func mountStreamingMonitors(api chi.Router, h *streamingmonitors.Handlers) {
+	api.Route("/monitoring-views", func(g chi.Router) {
+		g.Get("/", h.ListViews)
+		g.Post("/", h.CreateView)
+		g.Get("/{id}", h.GetView)
+		g.Get("/{id}/rules", h.ListRulesForView)
+		g.Post("/{id}/rules", h.CreateRule)
+	})
+	api.Route("/monitor-rules", func(g chi.Router) {
+		g.Get("/", h.ListRules)
+		g.Patch("/{id}", h.PatchRule)
+		g.Delete("/{id}", h.DeleteRule)
+		g.Get("/{id}/evaluations", h.ListEvaluations)
 	})
 }
 

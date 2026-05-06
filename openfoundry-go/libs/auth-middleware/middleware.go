@@ -27,6 +27,13 @@ func MustFromContext(ctx context.Context) *Claims {
 	return c
 }
 
+// ContextWithClaims returns a copy of ctx with the given claims attached
+// under the same key Middleware uses. Intended for tests and for
+// in-process composition where the caller has already authenticated.
+func ContextWithClaims(ctx context.Context, c *Claims) context.Context {
+	return context.WithValue(ctx, claimsKey{}, c)
+}
+
 // Options tunes the middleware behaviour.
 type Options struct {
 	// Optional — when nil, every request must carry a valid JWT.
