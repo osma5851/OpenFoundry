@@ -18,10 +18,21 @@ package stores
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	storageabstraction "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 )
+
+// pageLimit mirrors `page.size.max(1) as usize` from the Rust noop —
+// callers asking for at least one page worth never see zero results.
+func pageLimit(p storageabstraction.Page) int {
+	n := int(p.Size)
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
 
 // ---- InMemoryObjectStore ---------------------------------------------------
 
@@ -56,6 +67,16 @@ func (s *InMemoryObjectStore) Get(_ context.Context, tenant storageabstraction.T
 	return nil, nil
 }
 
+// Put implements ObjectStore. Mirrors the cassandra-kernel + Rust noop
+// version-bumping semantics: the in-memory fake forces version=1 on
+// insert and version=existing+1 on update so callers cannot smuggle
+// arbitrary versions past the optimistic-concurrency contract — same
+// behaviour the production CAS write enforces row-side.
+//
+// Per the storage-abstraction trait doc, expected_version=nil means
+// insert-only: a Put against an existing key with expected=nil is a
+// VersionConflict (Go diverges intentionally from the Rust noop here,
+// which has a documented bug where (Some, None) silently updates).
 func (s *InMemoryObjectStore) Put(_ context.Context, obj storageabstraction.Object, expectedVersion *uint64) (storageabstraction.PutOutcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,17 +85,29 @@ func (s *InMemoryObjectStore) Put(_ context.Context, obj storageabstraction.Obje
 	if expectedVersion == nil && exists {
 		return storageabstraction.VersionConflict(0, prev.Version), nil
 	}
-	if expectedVersion != nil && exists && prev.Version != *expectedVersion {
-		return storageabstraction.VersionConflict(*expectedVersion, prev.Version), nil
-	}
 	if expectedVersion != nil && !exists {
+		if *expectedVersion == 0 {
+			toInsert := obj
+			toInsert.Version = 1
+			s.data[key] = toInsert
+			return storageabstraction.PutOutcome{Kind: storageabstraction.PutInserted, NewVersion: 1}, nil
+		}
 		return storageabstraction.VersionConflict(*expectedVersion, 0), nil
 	}
-	s.data[key] = obj
-	if exists {
-		return storageabstraction.Updated(prev.Version, obj.Version), nil
+	if expectedVersion != nil && prev.Version != *expectedVersion {
+		return storageabstraction.VersionConflict(*expectedVersion, prev.Version), nil
 	}
-	return storageabstraction.PutOutcome{Kind: storageabstraction.PutInserted, NewVersion: obj.Version}, nil
+	if !exists {
+		toInsert := obj
+		toInsert.Version = 1
+		s.data[key] = toInsert
+		return storageabstraction.PutOutcome{Kind: storageabstraction.PutInserted, NewVersion: 1}, nil
+	}
+	newVersion := prev.Version + 1
+	toUpdate := obj
+	toUpdate.Version = newVersion
+	s.data[key] = toUpdate
+	return storageabstraction.Updated(prev.Version, newVersion), nil
 }
 
 func (s *InMemoryObjectStore) Delete(_ context.Context, tenant storageabstraction.TenantId, id storageabstraction.ObjectId) (bool, error) {
@@ -88,46 +121,56 @@ func (s *InMemoryObjectStore) Delete(_ context.Context, tenant storageabstractio
 	return true, nil
 }
 
-func (s *InMemoryObjectStore) ListByType(_ context.Context, tenant storageabstraction.TenantId, typeID storageabstraction.TypeId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Object], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var items []storageabstraction.Object
-	for k, v := range s.data {
-		if k.tenant == tenant && v.TypeID == typeID {
+// listObjects collects every object satisfying `pred`, sorts by
+// UpdatedAtMs desc and truncates to the page limit. Mirrors the
+// Rust noop pattern shared across list_by_type / list_by_owner /
+// list_by_marking.
+func (s *InMemoryObjectStore) listObjects(pred func(*storageabstraction.Object) bool, p storageabstraction.Page) storageabstraction.PagedResult[storageabstraction.Object] {
+	items := make([]storageabstraction.Object, 0)
+	for _, v := range s.data {
+		if pred(&v) {
 			items = append(items, v)
 		}
 	}
-	return storageabstraction.PagedResult[storageabstraction.Object]{Items: items}, nil
-}
-
-func (s *InMemoryObjectStore) ListByOwner(_ context.Context, tenant storageabstraction.TenantId, owner storageabstraction.OwnerId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Object], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var items []storageabstraction.Object
-	for k, v := range s.data {
-		if k.tenant == tenant && v.Owner != nil && *v.Owner == owner {
-			items = append(items, v)
-		}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].UpdatedAtMs > items[j].UpdatedAtMs
+	})
+	if limit := pageLimit(p); len(items) > limit {
+		items = items[:limit]
 	}
-	return storageabstraction.PagedResult[storageabstraction.Object]{Items: items}, nil
+	return storageabstraction.PagedResult[storageabstraction.Object]{Items: items}
 }
 
-func (s *InMemoryObjectStore) ListByMarking(_ context.Context, tenant storageabstraction.TenantId, marking storageabstraction.MarkingId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Object], error) {
+func (s *InMemoryObjectStore) ListByType(_ context.Context, tenant storageabstraction.TenantId, typeID storageabstraction.TypeId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Object], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var items []storageabstraction.Object
-	for k, v := range s.data {
-		if k.tenant != tenant {
-			continue
+	return s.listObjects(func(o *storageabstraction.Object) bool {
+		return o.Tenant == tenant && o.TypeID == typeID
+	}, page), nil
+}
+
+func (s *InMemoryObjectStore) ListByOwner(_ context.Context, tenant storageabstraction.TenantId, owner storageabstraction.OwnerId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Object], error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listObjects(func(o *storageabstraction.Object) bool {
+		return o.Tenant == tenant && o.Owner != nil && *o.Owner == owner
+	}, page), nil
+}
+
+func (s *InMemoryObjectStore) ListByMarking(_ context.Context, tenant storageabstraction.TenantId, marking storageabstraction.MarkingId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Object], error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listObjects(func(o *storageabstraction.Object) bool {
+		if o.Tenant != tenant {
+			return false
 		}
-		for _, m := range v.Markings {
+		for _, m := range o.Markings {
 			if m == marking {
-				items = append(items, v)
-				break
+				return true
 			}
 		}
-	}
-	return storageabstraction.PagedResult[storageabstraction.Object]{Items: items}, nil
+		return false
+	}, page), nil
 }
 
 // ---- InMemoryLinkStore -----------------------------------------------------
@@ -175,25 +218,36 @@ func (s *InMemoryLinkStore) Delete(_ context.Context, tenant storageabstraction.
 	return true, nil
 }
 
-func (s *InMemoryLinkStore) ListOutgoing(_ context.Context, tenant storageabstraction.TenantId, linkType storageabstraction.LinkTypeId, from storageabstraction.ObjectId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Link], error) {
+// ListOutgoing implements LinkStore. Honours `page.size.max(1)`
+// truncation just like the Rust noop.
+func (s *InMemoryLinkStore) ListOutgoing(_ context.Context, tenant storageabstraction.TenantId, linkType storageabstraction.LinkTypeId, from storageabstraction.ObjectId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Link], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var items []storageabstraction.Link
+	limit := pageLimit(page)
+	items := make([]storageabstraction.Link, 0)
 	for k, v := range s.data {
 		if k.tenant == tenant && k.linkType == linkType && k.from == from {
 			items = append(items, v)
+			if len(items) >= limit {
+				break
+			}
 		}
 	}
 	return storageabstraction.PagedResult[storageabstraction.Link]{Items: items}, nil
 }
 
-func (s *InMemoryLinkStore) ListIncoming(_ context.Context, tenant storageabstraction.TenantId, linkType storageabstraction.LinkTypeId, to storageabstraction.ObjectId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Link], error) {
+// ListIncoming implements LinkStore.
+func (s *InMemoryLinkStore) ListIncoming(_ context.Context, tenant storageabstraction.TenantId, linkType storageabstraction.LinkTypeId, to storageabstraction.ObjectId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.Link], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var items []storageabstraction.Link
+	limit := pageLimit(page)
+	items := make([]storageabstraction.Link, 0)
 	for k, v := range s.data {
 		if k.tenant == tenant && k.linkType == linkType && k.to == to {
 			items = append(items, v)
+			if len(items) >= limit {
+				break
+			}
 		}
 	}
 	return storageabstraction.PagedResult[storageabstraction.Link]{Items: items}, nil
@@ -214,53 +268,72 @@ func NewInMemoryActionLogStore() *InMemoryActionLogStore {
 
 var _ storageabstraction.ActionLogStore = (*InMemoryActionLogStore)(nil)
 
+// effectiveEventID mirrors Rust
+// `entry.event_id.clone().unwrap_or_else(|| entry.action_id.clone())`.
+func effectiveEventID(entry storageabstraction.ActionLogEntry) string {
+	if entry.EventID != nil {
+		return *entry.EventID
+	}
+	return entry.ActionID
+}
+
+// Append implements ActionLogStore. Idempotent on
+// (tenant, effective_event_id) — a duplicate Append is dropped, same
+// contract as the Rust noop.
 func (s *InMemoryActionLogStore) Append(_ context.Context, entry storageabstraction.ActionLogEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	want := effectiveEventID(entry)
+	for _, e := range s.entries {
+		if e.Tenant == entry.Tenant && effectiveEventID(e) == want {
+			return nil
+		}
+	}
 	s.entries = append(s.entries, entry)
 	return nil
 }
 
-func (s *InMemoryActionLogStore) ListRecent(_ context.Context, tenant storageabstraction.TenantId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.ActionLogEntry], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var items []storageabstraction.ActionLogEntry
-	// Time-DESC ordering by reversing append order — the entry slice
-	// is sorted by RecordedAtMs only as a side effect of Append being
-	// the sole writer, which is the contract the production stores
-	// enforce explicitly.
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		if s.entries[i].Tenant == tenant {
-			items = append(items, s.entries[i])
-		}
-	}
-	return storageabstraction.PagedResult[storageabstraction.ActionLogEntry]{Items: items}, nil
-}
-
-func (s *InMemoryActionLogStore) ListForObject(_ context.Context, tenant storageabstraction.TenantId, object storageabstraction.ObjectId, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.ActionLogEntry], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var items []storageabstraction.ActionLogEntry
-	for i := len(s.entries) - 1; i >= 0; i-- {
+// listEntries collects every entry satisfying `pred`, sorts by
+// RecordedAtMs desc and truncates to the page limit.
+func (s *InMemoryActionLogStore) listEntries(pred func(*storageabstraction.ActionLogEntry) bool, p storageabstraction.Page) storageabstraction.PagedResult[storageabstraction.ActionLogEntry] {
+	items := make([]storageabstraction.ActionLogEntry, 0)
+	for i := range s.entries {
 		e := s.entries[i]
-		if e.Tenant == tenant && e.Object != nil && *e.Object == object {
+		if pred(&e) {
 			items = append(items, e)
 		}
 	}
-	return storageabstraction.PagedResult[storageabstraction.ActionLogEntry]{Items: items}, nil
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].RecordedAtMs > items[j].RecordedAtMs
+	})
+	if limit := pageLimit(p); len(items) > limit {
+		items = items[:limit]
+	}
+	return storageabstraction.PagedResult[storageabstraction.ActionLogEntry]{Items: items}
 }
 
-func (s *InMemoryActionLogStore) ListForAction(_ context.Context, tenant storageabstraction.TenantId, actionID string, _ storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.ActionLogEntry], error) {
+func (s *InMemoryActionLogStore) ListRecent(_ context.Context, tenant storageabstraction.TenantId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.ActionLogEntry], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var items []storageabstraction.ActionLogEntry
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		e := s.entries[i]
-		if e.Tenant == tenant && e.ActionID == actionID {
-			items = append(items, e)
-		}
-	}
-	return storageabstraction.PagedResult[storageabstraction.ActionLogEntry]{Items: items}, nil
+	return s.listEntries(func(e *storageabstraction.ActionLogEntry) bool {
+		return e.Tenant == tenant
+	}, page), nil
+}
+
+func (s *InMemoryActionLogStore) ListForObject(_ context.Context, tenant storageabstraction.TenantId, object storageabstraction.ObjectId, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.ActionLogEntry], error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listEntries(func(e *storageabstraction.ActionLogEntry) bool {
+		return e.Tenant == tenant && e.Object != nil && *e.Object == object
+	}, page), nil
+}
+
+func (s *InMemoryActionLogStore) ListForAction(_ context.Context, tenant storageabstraction.TenantId, actionID string, page storageabstraction.Page, _ storageabstraction.ReadConsistency) (storageabstraction.PagedResult[storageabstraction.ActionLogEntry], error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listEntries(func(e *storageabstraction.ActionLogEntry) bool {
+		return e.Tenant == tenant && e.ActionID == actionID
+	}, page), nil
 }
 
 // ---- MockObjectStore (record-and-return) -----------------------------------
