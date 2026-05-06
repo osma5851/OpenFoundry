@@ -33,21 +33,12 @@ func TestCreateExperiment_RejectsBadJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestListRuns_Stub501(t *testing.T) {
-	t.Parallel()
-	h := &ExperimentsHandlers{Pool: nil}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	w := httptest.NewRecorder()
-	h.ListRuns(w, req)
-	assert.Equal(t, http.StatusNotImplemented, w.Code)
-}
-
 func TestCreateRun_RejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	h := &ExperimentsHandlers{Pool: nil}
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"   ","experiment_id":"`+uuid.New().String()+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"   "}`))
 	w := httptest.NewRecorder()
-	h.CreateRun(w, req)
+	h.CreateRun(w, req, uuid.New())
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
@@ -63,7 +54,7 @@ func TestCompareRuns_RejectsEmptyRunIDs(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-	assert.Equal(t, "at least one run id is required", body.Error)
+	assert.Equal(t, "at least one run is required", body.Error)
 }
 
 func TestCompareRuns_RejectsBadJSON(t *testing.T) {
