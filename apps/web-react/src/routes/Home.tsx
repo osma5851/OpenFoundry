@@ -46,6 +46,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/ml', title: 'ML Studio', description: 'Experiments + runs + models + features + training + deployments + drift + batch predictions.' },
   { path: '/action-types', title: 'Action types', description: 'Author + validate + execute object-type actions, what-if branches, metrics.' },
   { path: '/datasets', title: 'Datasets', description: 'Catalog browser + upload + detail (preview, schema, files, transactions, quality) + branches.' },
+  { path: '/apps', title: 'Apps', description: 'Workshop app builder: pages + settings + theme JSON, versions, publish, slate import/export.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
