@@ -6,6 +6,10 @@ engine strategy for `authorization-policy-service` and the cedar_authz
 piece of `identity-federation-service` slice 8. See
 [INVENTORY-authorization-policy-service.md](INVENTORY-authorization-policy-service.md).
 
+**Resolution (2026-05-06):** User picked **Option A — adopt cedar-go**.
+Loop is unblocked. Next iteration starts with `libs/authz-cedar-go` as
+the de-risking step before porting the service itself.
+
 ## What landed
 
 15 commits across the autonomous run, all on
@@ -85,20 +89,19 @@ All tests run with `go test -race -count=1 ./...` after every iteration.
 
 ## Decisions deferred for human review
 
-### 1. Cedar strategy (BLOCKING for authorization-policy-service + identity-federation slice 8)
+### 1. Cedar strategy — RESOLVED 2026-05-06: Option A (cedar-go)
 
-Three options documented in INVENTORY-authorization-policy-service.md:
+User signed off on **Option A**: adopt `github.com/cedar-policy/cedar-go`.
+The dead-code Rust binary (`fn main() {}`) collapsed the argument for
+Option B (sidecar) — there's no live production system to preserve
+byte-identical evaluation with, so conformance becomes "Cedar spec ↔ Go
+impl" (AWS's problem). Pre-1.0 risk managed by pinning a cedar-go tag
+and mirroring AWS's conformance test suite in CI.
 
-- **A. Adopt `github.com/cedar-policy/cedar-go`** (recommended). Pre-1.0,
-  AWS-maintained, API mirror of cedar-policy v4. Requires committing to
-  AWS's conformance test suite as a CI gate.
-- **B. Cedar sidecar over gRPC.** Run a small Rust binary embedding
-  cedar-policy; Go service calls it on loopback. Zero policy-evaluation
-  risk; adds polyglot deployment + sidecar latency budget.
-- **C. Wait** — keep authorization-policy-service in Rust until Phase 6.
-
-This decision gates ~5 200 LOC of porting work plus the cedar_authz
-piece of identity-federation slice 8.
+**De-risking step:** port `libs/authz-cedar` → `libs/authz-cedar-go`
+(~1 671 LOC) before the service itself. Validates cedar-go in a bounded
+scope and ships a reusable lib. Only after the lib passes its
+conformance suite do we start porting handlers/domain in slices.
 
 ### 2. Workspace inventory finding — retired upstream surfaces
 

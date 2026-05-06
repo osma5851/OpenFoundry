@@ -1,8 +1,41 @@
 # Inventory — authorization-policy-service
 
-## TL;DR — STOP-and-ask gate
+## DECISION (2026-05-06): Option A — adopt `github.com/cedar-policy/cedar-go`
 
-This service is flagged in the migration prompt as a **STOP-and-ask
+User signed off on **Option A** (cedar-go) over the sidecar (B) and the
+"wait" stance (C). Rationale captured in conversation:
+
+- The Rust binary `src/main.rs` is `fn main() {}` — there is no live
+  production system to preserve byte-identical evaluation with. The
+  conformance contract becomes "Cedar spec ↔ Go impl" (AWS's problem),
+  not "Rust impl ↔ Go impl" (ours). This collapses the argument for the
+  sidecar.
+- AWS maintains cedar-rust and cedar-go in lock-step with the same
+  conformance test suite; pre-1.0 risk is bounded (API drift, not
+  unsoundness) and can be managed by pinning a tag and mirroring AWS's
+  conformance tests in CI.
+
+### De-risking step before the full service port
+
+Before porting `authorization-policy-service` itself (~5 200 LOC), port
+`libs/authz-cedar` → `libs/authz-cedar-go` first (1 671 LOC of glue +
+cedar-go wrappers). That validates cedar-go in a bounded scope and ships
+a reusable lib. Only after `libs/authz-cedar-go` passes its conformance
+suite do we start porting handlers/domain in slices.
+
+### Open question (non-blocking)
+
+The Rust binary's `fn main() {}` may be intentional (project on hold) or
+a TODO (consolidated binary pending). The Go port can proceed
+independently of that answer — if the Rust binary stays a stub, the Go
+port becomes the canonical implementation. Worth confirming
+post-implementation but does not gate the work.
+
+---
+
+## Background — why this was a STOP-and-ask gate
+
+This service was flagged in the migration prompt as a **STOP-and-ask
 candidate** for two independent reasons:
 
 1. **Cedar dependency.** Service depends on the `authz-cedar` workspace
