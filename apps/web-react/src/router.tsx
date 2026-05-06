@@ -255,6 +255,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/pipelines/PipelineEditPage')).PipelineEditPage }),
       },
       {
+        path: 'schedules/:rid',
+        lazy: async () => ({ Component: (await import('./routes/schedules/ScheduleDetailPage')).ScheduleDetailPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
