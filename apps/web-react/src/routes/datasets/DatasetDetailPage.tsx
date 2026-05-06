@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { Tabs } from '@/lib/components/Tabs';
+import { VirtualizedPreviewTable } from '@/lib/components/dataset/VirtualizedPreviewTable';
 import {
   deleteDataset,
   getDataset,
@@ -177,26 +178,14 @@ export function DatasetDetailPage() {
       />
 
       {tab === 'preview' && (
-        <section className="of-panel" style={{ padding: 16, overflow: 'auto' }}>
+        <section className="of-panel" style={{ padding: 16 }}>
           {preview ? (
-            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
-              <thead>
-                <tr>
-                  {previewColumns.map((c) => (
-                    <th key={c} style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid var(--border-default)', position: 'sticky', top: 0, background: 'var(--bg-default)' }}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {previewRows.map((row, i) => (
-                  <tr key={i}>
-                    {previewColumns.map((c) => (
-                      <td key={c} style={{ padding: 6, borderBottom: '1px solid var(--border-subtle)' }}>{String(row[c] ?? '')}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <VirtualizedPreviewTable
+              columns={preview.columns ?? previewColumns.map((name) => ({ name }))}
+              rows={previewRows}
+              transactions={transactions}
+              fileFormat={preview.format ?? null}
+            />
           ) : (
             <p className="of-text-muted">No preview yet.</p>
           )}

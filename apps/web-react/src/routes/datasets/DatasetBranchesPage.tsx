@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import { BranchGraph } from '@/lib/components/dataset/BranchGraph';
 import {
   createBranchV2,
   deleteDatasetBranch,
@@ -14,12 +15,14 @@ import {
 
 export function DatasetBranchesPage() {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [branches, setBranches] = useState<DatasetBranch[]>([]);
   const [transactions, setTransactions] = useState<DatasetTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [view, setView] = useState<'graph' | 'table'>('graph');
 
   // create form
   const [createName, setCreateName] = useState('feature/new-branch');
@@ -88,6 +91,13 @@ export function DatasetBranchesPage() {
     return transactions.filter((t) => (t as DatasetTransaction & { branch_name?: string }).branch_name === name).length;
   }
 
+  const txCountByName = useMemo(() => {
+    const m: Record<string, { transactions: number }> = {};
+    for (const b of branches) m[b.name] = { transactions: txCount(b.name) };
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branches, transactions]);
+
   function parentName(b: DatasetBranch): string {
     if (!b.parent_branch_id) return '— (root)';
     const parent = branches.find((p) => p.id === b.parent_branch_id);
@@ -126,8 +136,27 @@ export function DatasetBranchesPage() {
 
       {loading ? (
         <p className="of-text-muted">Loading…</p>
+      ) : view === 'graph' ? (
+        <section className="of-panel" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button type="button" onClick={() => setView('table')} className="of-button" style={{ fontSize: 11 }}>
+              Switch to table view
+            </button>
+          </div>
+          <BranchGraph
+            branches={branches}
+            extras={txCountByName}
+            onSelect={() => { /* no-op for now */ }}
+            onDoubleClick={(b) => navigate(`/datasets/${id}/branches/${encodeURIComponent(b.name)}`)}
+          />
+        </section>
       ) : (
         <section className="of-panel" style={{ padding: 16, overflow: 'auto' }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button type="button" onClick={() => setView('graph')} className="of-button" style={{ fontSize: 11 }}>
+              Switch to graph view
+            </button>
+          </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>

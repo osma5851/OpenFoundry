@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { JsonEditor } from '@/lib/components/JsonEditor';
 import { Tabs } from '@/lib/components/Tabs';
+import { PipelineCanvas } from '@/lib/components/pipeline/PipelineCanvas';
 import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
 import {
   getPipeline,
@@ -22,7 +23,7 @@ export function PipelineEditPage() {
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [validation, setValidation] = useState<PipelineValidationResponse | null>(null);
-  const [tab, setTab] = useState<'nodes' | 'config' | 'runs' | 'validate'>('nodes');
+  const [tab, setTab] = useState<'canvas' | 'nodes' | 'config' | 'runs' | 'validate'>('canvas');
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -186,7 +187,22 @@ export function PipelineEditPage() {
         </div>
       )}
 
-      <Tabs tabs={['nodes', 'config', 'runs', 'validate'] as const} active={tab} onChange={setTab} />
+      <Tabs tabs={['canvas', 'nodes', 'config', 'runs', 'validate'] as const} active={tab} onChange={setTab} />
+
+      {tab === 'canvas' && (
+        <PipelineCanvas
+          nodes={(() => {
+            try { return JSON.parse(nodesJson) as PipelineNode[]; }
+            catch { return []; }
+          })()}
+          status={statusValue}
+          scheduleConfig={(() => {
+            try { return JSON.parse(scheduleJson); }
+            catch { return { enabled: false, cron: null }; }
+          })()}
+          onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))}
+        />
+      )}
 
       {tab === 'nodes' && (
         <PipelineNodeList

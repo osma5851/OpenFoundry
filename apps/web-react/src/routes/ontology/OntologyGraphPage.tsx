@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { CytoscapeCanvas } from '@/lib/components/CytoscapeCanvas';
 import { getOntologyGraph, listObjectTypes, type GraphResponse, type ObjectType } from '@/lib/api/ontology';
 
 type Mode = 'schema' | 'object';
@@ -80,33 +81,92 @@ export function OntologyGraphPage() {
         </div>
       </section>
 
-      {graph && (
-        <section className="of-panel" style={{ padding: 16 }}>
-          <p className="of-eyebrow">{graph.nodes.length} nodes · {graph.edges.length} edges</p>
-          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 8 }}>
-            <div>
-              <p className="of-eyebrow" style={{ fontSize: 11 }}>Nodes</p>
-              <ul style={{ paddingLeft: 18, fontSize: 12 }}>
-                {graph.nodes.map((n) => (
-                  <li key={n.id}>
-                    <strong>{n.label}</strong> · {n.kind}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="of-eyebrow" style={{ fontSize: 11 }}>Edges</p>
-              <ul style={{ paddingLeft: 18, fontSize: 12 }}>
-                {graph.edges.map((e) => (
-                  <li key={e.id}>
-                    {e.source} → {e.target} · {e.label || e.kind}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-      )}
+      {graph && <OntologyGraphView graph={graph} />}
+    </section>
+  );
+}
+
+function OntologyGraphView({ graph }: { graph: GraphResponse }) {
+  const elements = useMemo(() => {
+    const nodes = graph.nodes.map((n) => ({
+      data: {
+        id: n.id,
+        label: n.label,
+        kind: n.kind,
+        color: n.color || '#4d8cf0',
+      },
+    }));
+    const edges = graph.edges.map((e) => ({
+      data: { id: e.id, source: e.source, target: e.target, label: e.label || e.kind },
+    }));
+    return [...nodes, ...edges];
+  }, [graph]);
+
+  const stylesheet = useMemo(
+    () => [
+      {
+        selector: 'node',
+        style: {
+          'background-color': 'data(color)',
+          label: 'data(label)',
+          color: '#f1f5f9',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'text-wrap': 'wrap',
+          'text-max-width': '100px',
+          'font-size': 11,
+          'font-weight': 600,
+          width: 100,
+          height: 40,
+          shape: 'round-rectangle',
+          'border-color': '#475569',
+          'border-width': 2,
+        },
+      },
+      {
+        selector: 'node:selected',
+        style: { 'border-color': '#fbbf24', 'border-width': 4 },
+      },
+      {
+        selector: 'edge',
+        style: {
+          width: 1.5,
+          'line-color': '#475569',
+          'target-arrow-color': '#475569',
+          'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          label: 'data(label)',
+          'font-size': 9,
+          color: '#94a3b8',
+          'text-rotation': 'autorotate',
+          'text-background-color': '#0b1220',
+          'text-background-opacity': 0.85,
+          'text-background-padding': '2px',
+        },
+      },
+    ],
+    [],
+  );
+
+  return (
+    <section className="of-panel" style={{ padding: 16 }}>
+      <p className="of-eyebrow">
+        {graph.nodes.length} nodes · {graph.edges.length} edges
+        {graph.summary && (
+          <>
+            {' '}· hops: {graph.summary.max_hops_reached}
+            {graph.summary.boundary_crossings > 0 && ` · ${graph.summary.boundary_crossings} boundary crossings`}
+            {graph.summary.sensitive_objects > 0 && ` · ${graph.summary.sensitive_objects} sensitive`}
+          </>
+        )}
+      </p>
+      <div style={{ marginTop: 8, border: '1px solid var(--border-default)', borderRadius: 12, background: '#0b1220' }}>
+        <CytoscapeCanvas
+          elements={elements}
+          stylesheet={stylesheet as unknown as import('cytoscape').StylesheetStyle[]}
+          height={520}
+        />
+      </div>
     </section>
   );
 }

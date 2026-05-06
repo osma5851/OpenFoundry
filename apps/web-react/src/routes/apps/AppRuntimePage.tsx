@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
+import { AppRenderer } from '@/lib/components/apps/AppRenderer';
 import { getPublishedApp, type AppDefinition } from '@/lib/api/apps';
 
 export function AppRuntimePage() {
@@ -51,12 +52,7 @@ export function AppRuntimePage() {
       {loading ? (
         <p className="of-text-muted">Loading published app…</p>
       ) : app ? (
-        <section className="of-panel" style={{ padding: 16 }}>
-          <p className="of-eyebrow">App definition (read-only)</p>
-          <pre style={{ marginTop: 8, padding: 12, background: 'var(--bg-subtle)', fontSize: 11, fontFamily: 'var(--font-mono)', borderRadius: 12, overflow: 'auto', maxHeight: 480 }}>
-            {JSON.stringify(app, null, 2)}
-          </pre>
-        </section>
+        <AppRenderer app={app} mode="published" />
       ) : null}
     </section>
   );
