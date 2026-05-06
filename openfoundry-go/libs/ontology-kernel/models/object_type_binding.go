@@ -27,9 +27,11 @@ func (m ObjectTypeBindingSyncMode) AsStr() string { return string(m) }
 
 // ParseObjectTypeBindingSyncMode mirrors `TryFrom<&str>` — trims
 // whitespace and rejects unknown tokens with the exact Rust error
-// message format.
+// message format. The error embeds the trimmed value because the Rust
+// match binds `other` to the result of `value.trim()`.
 func ParseObjectTypeBindingSyncMode(s string) (ObjectTypeBindingSyncMode, error) {
-	switch strings.TrimSpace(s) {
+	trimmed := strings.TrimSpace(s)
+	switch trimmed {
 	case "snapshot":
 		return ObjectTypeBindingSyncModeSnapshot, nil
 	case "incremental":
@@ -39,7 +41,7 @@ func ParseObjectTypeBindingSyncMode(s string) (ObjectTypeBindingSyncMode, error)
 	default:
 		return "", fmt.Errorf(
 			"sync_mode '%s' is not supported; expected one of: snapshot, incremental, view",
-			s,
+			trimmed,
 		)
 	}
 }
