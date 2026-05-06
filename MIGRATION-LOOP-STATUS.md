@@ -63,10 +63,11 @@ Stubs that were claimed pending but are now real production code:
 |---|------|--------|-------|
 | 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | ⏳ pending | crewjam/saml + russellhaering/goxmldsig; needs IdP test certs + metadata fixtures. Rust source: handlers/sso.rs (850 LOC) + testdata/saml fixtures already exist. |
 | 3.7b.1 | slice 8: Cedar wiring (`internal/cedarauthz`) | ✅ done | commit `c465caf5` (789 LOC: cedarauthz.go + guard.go + 17 tests). AdminGuard middleware hydrates kind/mfa_age_secs/groups from claims.Attributes and emits Group/Role parent entities. |
-| 3.7b.2.1 | slice 8: JWKS orchestrator + interfaces + in-memory fake | ✅ done | commit `b841e89e` (1283 LOC: types.go + jwksrotation.go + inmemory.go + 24 tests). Service.{Rotate,Rollback,PublishedJwks,SignActive} + RotationPolicy (90/14 ASVS-L2 default) + JwksKeyStore + TransitKeyClient interfaces + InMemoryJwksKeyStore + FakeTransitKeyClient. |
-| 3.7b.2.2 | slice 8: PostgresJwksKeyStore | ⏳ pending | ~250 LOC pgx port of impl JwksKeyStore for PostgresJwksKeyStore. Uses the JwksKeysDDL/IndexDDL constants already exported. |
-| 3.7b.2.3 | slice 8: VaultTransitSigner (live HTTP) | ⏳ pending | hardening/vault_signer.rs (759 LOC) — full Vault transit HTTP client + Kubernetes-auth flow + retry policy. Multi-iteration on its own. |
-| 3.7b.2.4 | slice 8: HTTP handlers + server wiring | ⏳ pending | handlers/security_ops.rs (239 LOC) — wraps AdminGuard around Service.{Rotate,Rollback,PublishedJwks}. Lands after 2.2 + 2.3. |
+| 3.7b.2.1 | slice 8: JWKS orchestrator + interfaces + in-memory fake | ✅ done | commit `b841e89e` (1283 LOC + 24 tests). Service + InMemoryJwksKeyStore + FakeTransitKeyClient. |
+| 3.7b.2.2 | slice 8: PostgresJwksKeyStore | ✅ done | commit `876d41d2` (433 LOC + 10 tests). pgx-backed impl using the JwksKeysDDL constants from 2.1. |
+| 3.7b.2.3 | slice 8: VaultTransitSigner (live HTTP) | ✅ done | commit `27c10af6` (1192 LOC + 24 tests). Full HTTP client + Token & Kubernetes-role auth flow + retry policy + httptest fakeVault round-trip suite. |
+| 3.7b.2.4 | slice 8: HTTP handlers + helpers | ✅ done | commit `ab50d49c` (613 LOC + 15 tests). PublishJwks / RotateJwks / RollbackJwks + HashContent / SignContent / VerifySignature. Belt-and-braces requireJwksRotation + requireSecurityWrite claim checks alongside the Cedar AdminGuard. |
+| 3.7b.2 | **slice 8: JWKS rotation half COMPLETE** | ✅ done | 4 sub-slices, ~3520 LOC of Go (types + interfaces + Postgres + Vault HTTP + HTTP handlers + ~75 tests). |
 | 3.7b.3 | slice 8: SCIM endpoints | ⏳ pending | handlers/scim.rs (1951 LOC) + hardening/scim.rs (515 LOC). Multi-iteration. RFC 7644 conformance + bulk provision/deprovision User + Group. Wires `AdminGuard(ActionScimProvision*, Scim*Resource)`. |
 
 ### P4 — Phase 5 decision (HUMAN INPUT REQUIRED)
@@ -207,6 +208,31 @@ tests green after the change before continuing.
 clean port using the JwksKeysDDL constants already exported by
 the orchestrator slice. Consumes pgx.Pool + the JwksKeyStore
 interface contract pinned in iter 5.
+
+### Iter 6 — 2026-05-06 (autonomous loop wakeup)
+
+Closed P3.7b.2 entirely (the JWKS rotation half of slice 8). 3 big
+commits + 1 small handlers commit:
+
+| # | Commit    | Slice                                                  |
+|---|-----------|--------------------------------------------------------|
+| 1 | `876d41d2`| 3.7b.2.2 — PostgresJwksKeyStore (pgx + 10 tests)       |
+| 2 | `27c10af6`| 3.7b.2.3 — VaultTransitSigner HTTP client (24 tests against an httptest fakeVault — covers Token + Kubernetes-role auth, retries on 5xx/429, 4xx no-retry, all 4 endpoints) |
+| 3 | `ab50d49c`| 3.7b.2.4 — security_ops handlers + hash/sign/verify helpers |
+
+**P3.7 sub-slice ledger after iter 6:**
+- 3.7b.1 ✅ Cedar wiring
+- 3.7b.2 ✅ JWKS rotation half COMPLETE (4 sub-slices done)
+- 3.7b.3 (SCIM) — pending (~2466 LOC Rust, multi-iteration)
+- 3.7a (SAML, slice 5b) — pending (~850 LOC + Go XML signing libs)
+
+**Next action (iter 7):** P3.7b.3 SCIM is the big remaining
+piece (1951 LOC handlers + 515 LOC hardening). The SCIM contract
+is well-defined (RFC 7644) — clean port, just sized. Needs at
+least 2 iterations to land User + Group provisioning. Could also
+tackle 3.7a (SAML) first since it's smaller — but needs IdP test
+fixtures already in services/identity-federation-service/src/
+testdata/saml so that's also tractable.
 
 ---
 
