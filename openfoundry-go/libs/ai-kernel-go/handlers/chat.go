@@ -452,21 +452,6 @@ func (h *ChatHandlers) AskCopilot(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "copilot ask lands with libs/ai-kernel-go/domain/llm/runtime port")
 }
 
-// BenchmarkProviders handles `POST /api/v1/providers/benchmark`. Stub
-// until runtime port lands.
-func (h *ChatHandlers) BenchmarkProviders(w http.ResponseWriter, r *http.Request) {
-	var body models.ProviderBenchmarkRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if strings.TrimSpace(body.Prompt) == "" {
-		writeError(w, http.StatusBadRequest, "benchmark prompt is required")
-		return
-	}
-	writeError(w, http.StatusNotImplemented, "provider benchmark lands with libs/ai-kernel-go/domain/llm/runtime port")
-}
-
 // conversationSummary mirrors fn conversation_summary in chat.rs.
 func conversationSummary(c models.Conversation) models.ConversationSummary {
 	preview := "No messages yet"
