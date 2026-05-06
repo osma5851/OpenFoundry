@@ -68,6 +68,16 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/purpose-templates", h.ListPurposeTemplates)
 		api.Get("/purpose-records", h.ListPurposeRecordsByInteraction)
 		api.Post("/purpose-records", h.CreatePurposeRecord)
+
+		api.Get("/cipher-permissions", h.ListCipherPermissions)
+		api.Get("/cipher-channels", h.ListCipherChannels)
+		api.Post("/cipher-channels", h.CreateCipherChannel)
+		api.Patch("/cipher-channels/{id}", h.UpdateCipherChannel)
+		api.Delete("/cipher-channels/{id}", h.DeleteCipherChannel)
+		api.Get("/cipher-licenses", h.ListCipherLicenses)
+		api.Post("/cipher-licenses", h.CreateCipherLicense)
+		api.Patch("/cipher-licenses/{id}", h.UpdateCipherLicense)
+		api.Delete("/cipher-licenses/{id}", h.DeleteCipherLicense)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
