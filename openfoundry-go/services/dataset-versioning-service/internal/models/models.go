@@ -2,11 +2,19 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+func sortUUIDsAscending(ids []uuid.UUID) {
+	sort.Slice(ids, func(i, j int) bool {
+		return bytes.Compare(ids[i][:], ids[j][:]) < 0
+	})
+}
 
 // ListResponse is the canonical envelope used by the legacy dataset surface.
 type ListResponse[T any] struct {
@@ -112,6 +120,54 @@ type CreateDatasetBranchRequest struct {
 	Name          string `json:"name"`
 	SourceVersion *int32 `json:"source_version,omitempty"`
 	Description   string `json:"description,omitempty"`
+}
+
+// MergeDatasetBranchRequest mirrors Rust MergeDatasetBranchRequest used by the
+// legacy merge/promote endpoints.
+type MergeDatasetBranchRequest struct {
+	TargetBranch *string `json:"target_branch,omitempty"`
+}
+
+// IsRoot mirrors Rust DatasetBranch::is_root: a branch is root iff it has no parent.
+func (b DatasetBranch) IsRoot() bool {
+	return b.ParentBranchID == nil
+}
+
+// BranchRID returns the public branch RID, synthesising one when reading rows
+// that pre-date the 20260504000010_branches_unify migration.
+func (b DatasetBranch) BranchRID() string {
+	if b.RID != "" {
+		return b.RID
+	}
+	return "ri.foundry.main.branch." + b.ID.String()
+}
+
+// ParentBranchRID returns the parent branch RID, if any.
+func (b DatasetBranch) ParentBranchRID() *string {
+	if b.ParentBranchID == nil {
+		return nil
+	}
+	rid := "ri.foundry.main.branch." + b.ParentBranchID.String()
+	return &rid
+}
+
+// HeadTransactionRID returns the head transaction RID, if any.
+func (b DatasetBranch) HeadTransactionRID() *string {
+	return formatTransactionRIDOpt(b.HeadTransactionID)
+}
+
+// CreatedFromTransactionRID returns the source transaction RID for branches
+// minted via source.from_transaction_rid.
+func (b DatasetBranch) CreatedFromTransactionRID() *string {
+	return formatTransactionRIDOpt(b.CreatedFromTransactionID)
+}
+
+func formatTransactionRIDOpt(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	rid := "ri.foundry.main.transaction." + id.String()
+	return &rid
 }
 
 // DatasetFile exposes the persisted Foundry logical-to-physical backing file
@@ -554,10 +610,51 @@ type BranchMarking struct {
 	Source    MarkingSource `json:"source"`
 }
 
+// String returns the canonical Rust SCREAMING_SNAKE_CASE label.
+func (s MarkingSource) String() string { return string(s) }
+
 type BranchMarkingsView struct {
 	Effective           []uuid.UUID `json:"effective"`
 	Explicit            []uuid.UUID `json:"explicit"`
 	InheritedFromParent []uuid.UUID `json:"inherited_from_parent"`
+}
+
+// BranchMarkingsViewFromRows projects a snapshot row set into the API
+// response shape, mirroring Rust BranchMarkingsView::from_rows. Output
+// slices are sorted ascending and the effective set deduplicates ids
+// that appear under both PARENT and EXPLICIT sources.
+func BranchMarkingsViewFromRows(rows []BranchMarking) BranchMarkingsView {
+	explicit := make(map[uuid.UUID]struct{})
+	inherited := make(map[uuid.UUID]struct{})
+	for _, row := range rows {
+		switch row.Source {
+		case MarkingSourceParent:
+			inherited[row.MarkingID] = struct{}{}
+		case MarkingSourceExplicit:
+			explicit[row.MarkingID] = struct{}{}
+		}
+	}
+	effective := make(map[uuid.UUID]struct{}, len(explicit)+len(inherited))
+	for k := range explicit {
+		effective[k] = struct{}{}
+	}
+	for k := range inherited {
+		effective[k] = struct{}{}
+	}
+	return BranchMarkingsView{
+		Effective:           sortedUUIDs(effective),
+		Explicit:            sortedUUIDs(explicit),
+		InheritedFromParent: sortedUUIDs(inherited),
+	}
+}
+
+func sortedUUIDs(set map[uuid.UUID]struct{}) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(set))
+	for id := range set {
+		out = append(out, id)
+	}
+	sortUUIDsAscending(out)
+	return out
 }
 
 type RuntimeFallbackEntry struct {
@@ -610,6 +707,99 @@ type BranchEnvelope struct {
 	Labels             map[string]string `json:"labels"`
 	Markings           []uuid.UUID       `json:"markings"`
 	Extras             JSONValue         `json:"extras"`
+}
+
+// Topic and event_type strings for `foundry.branch.events.v1`.
+// Mirrors Rust src/domain/branch_events.rs.
+const (
+	BranchEventsTopic        = "foundry.branch.events.v1"
+	EventBranchCreated       = "dataset.branch.created.v1"
+	EventBranchReparented    = "dataset.branch.reparented.v1"
+	EventBranchDeleted       = "dataset.branch.deleted.v1"
+	EventBranchArchived      = "dataset.branch.archived.v1"
+	EventBranchRestored      = "dataset.branch.restored.v1"
+	EventBranchMarkingsSet   = "dataset.branch.markings.updated.v1"
+	EventBranchRetentionSet  = "dataset.branch.retention.updated.v1"
+)
+
+// NewBranchEnvelope constructs a fresh envelope. The default constructor
+// leaves the parent unset, so the envelope is born as a root event;
+// WithParentRID(non-nil) flips IsRoot back to false.
+func NewBranchEnvelope(eventType, branchRID, datasetRID, actor string) BranchEnvelope {
+	return BranchEnvelope{
+		EventType:     eventType,
+		EventID:       uuid.New(),
+		OccurredAt:    time.Now().UTC(),
+		Actor:         actor,
+		BranchRID:     branchRID,
+		DatasetRID:    datasetRID,
+		IsRoot:        true,
+		FallbackChain: []string{},
+		Labels:        map[string]string{},
+		Markings:      []uuid.UUID{},
+		Extras:        JSONValue([]byte("{}")),
+	}
+}
+
+// WithParentRID sets the parent branch RID and recomputes IsRoot.
+func (e BranchEnvelope) WithParentRID(parentRID *string) BranchEnvelope {
+	e.IsRoot = parentRID == nil
+	e.ParentRID = parentRID
+	return e
+}
+
+// WithHead sets the head transaction RID.
+func (e BranchEnvelope) WithHead(headTransactionRID *string) BranchEnvelope {
+	e.HeadTransactionRID = headTransactionRID
+	return e
+}
+
+// WithFallback sets the fallback chain.
+func (e BranchEnvelope) WithFallback(chain []string) BranchEnvelope {
+	if chain == nil {
+		chain = []string{}
+	}
+	e.FallbackChain = chain
+	return e
+}
+
+// WithLabels sets the free-form labels map.
+func (e BranchEnvelope) WithLabels(labels map[string]string) BranchEnvelope {
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	e.Labels = labels
+	return e
+}
+
+// WithMarkings sets the marking ids attached to the event.
+func (e BranchEnvelope) WithMarkings(markings []uuid.UUID) BranchEnvelope {
+	if markings == nil {
+		markings = []uuid.UUID{}
+	}
+	e.Markings = markings
+	return e
+}
+
+// WithExtras attaches event-type-specific extras as a raw JSON object.
+func (e BranchEnvelope) WithExtras(extras JSONValue) BranchEnvelope {
+	if len(extras) == 0 {
+		extras = JSONValue([]byte("{}"))
+	}
+	e.Extras = extras
+	return e
+}
+
+// Payload renders the envelope as a JSON object (Rust into_payload).
+// On any encoding error the function falls back to "{}" so that the
+// outbox row never carries a malformed payload — same defensive choice
+// as the Rust implementation.
+func (e BranchEnvelope) Payload() json.RawMessage {
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return json.RawMessage([]byte("{}"))
+	}
+	return raw
 }
 
 // Transactions and 207 batch envelopes.

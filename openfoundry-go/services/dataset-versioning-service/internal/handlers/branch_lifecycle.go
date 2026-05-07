@@ -6,10 +6,17 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/models"
 )
+
+// hasMergeConflict mirrors Rust handlers::branches::has_merge_conflict: a
+// merge is conflict-free when the target branch sits on either the source
+// branch's base (fast-forward) or the source branch's head (already
+// contains the work). Anything else means target diverged.
+func hasMergeConflict(sourceBaseVersion, sourceVersion, targetVersion int32) bool {
+	return targetVersion != sourceBaseVersion && targetVersion != sourceVersion
+}
 
 func branchNameParam(r *http.Request) string {
 	return chi.URLParam(r, "branch")
@@ -149,16 +156,7 @@ func (h *Handlers) GetBranchMarkings(w http.ResponseWriter, r *http.Request) {
 		writeBranchError(w, err)
 		return
 	}
-	view := models.BranchMarkingsView{Effective: []uuid.UUID{}, Explicit: []uuid.UUID{}, InheritedFromParent: []uuid.UUID{}}
-	for _, row := range rows {
-		view.Effective = append(view.Effective, row.MarkingID)
-		if row.Source == "EXPLICIT" {
-			view.Explicit = append(view.Explicit, row.MarkingID)
-		} else {
-			view.InheritedFromParent = append(view.InheritedFromParent, row.MarkingID)
-		}
-	}
-	writeJSON(w, http.StatusOK, view)
+	writeJSON(w, http.StatusOK, models.BranchMarkingsViewFromRows(rows))
 }
 
 func (h *Handlers) RestoreBranch(w http.ResponseWriter, r *http.Request) {
