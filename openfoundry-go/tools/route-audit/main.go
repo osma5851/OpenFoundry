@@ -18,6 +18,7 @@ var defaultServices = []string{
 	"authorization-policy-service",
 	"federation-product-exchange-service",
 	"ontology-indexer",
+	"dataset-versioning-service",
 }
 
 var methodNames = []string{"get", "post", "put", "patch", "delete", "head", "options"}
@@ -602,8 +603,17 @@ func extractGoRoutes(repo, service string) []Route {
 				continue
 			}
 			seeded[seedKey] = true
-			if def.Package == "server" && (def.Name == "BuildRouter" || def.Name == "Build") {
+			if def.Package == "server" && (def.Name == "BuildRouter" || def.Name == "Build" || def.Name == "New") {
 				walk(def, map[string]string{"r": ""})
+			}
+			if def.Package == "server" && strings.Contains(def.Body, "chi.NewRouter()") {
+				prefixes := map[string]string{}
+				for _, m := range regexp.MustCompile(`(\w+)\s*:=\s*chi\.NewRouter\s*\(`).FindAllStringSubmatch(def.Body, -1) {
+					prefixes[m[1]] = ""
+				}
+				if len(prefixes) > 0 {
+					walk(def, prefixes)
+				}
 			}
 		}
 	}
