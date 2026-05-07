@@ -51,6 +51,40 @@ type ErrorBody struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    int    `json:"code"`
+	// Kind, when set, carries the failing requirement assertion
+	// (e.g. "assert-uuid", "assert-current-schema-id") so PyIceberg /
+	// Spark callers can branch on the broken assertion without
+	// parsing the free-form Message. Mirrors Rust's
+	// TableError::RequirementsFailed envelope.
+	Kind string `json:"kind,omitempty"`
+}
+
+// SchemaIncompatibleEnvelope is the 422 response shape returned when
+// CommitTable refuses an `add-schema` update that diverges from the
+// current schema (strict-mode rejection per Foundry doc
+// § "Automatic schema evolution"). Mirrors Rust's
+// ApiError::SchemaIncompatible body so the pipeline-authoring UI's
+// "generate ALTER TABLE" CTA receives the structural diff verbatim.
+type SchemaIncompatibleEnvelope struct {
+	Error SchemaIncompatibleErrorBody `json:"error"`
+}
+
+// SchemaIncompatibleErrorBody carries the diff envelope used by the
+// "generate ALTER TABLE" client surface. The `current_schema` and
+// `attempted_schema` fields are returned verbatim so the client can
+// render a side-by-side preview without re-fetching the table.
+//
+// `Diff` is typed as `domain.SchemaDiff` indirectly through
+// json.RawMessage to avoid a models→domain import cycle; the
+// CommitTable handler marshals the diff before constructing the
+// envelope.
+type SchemaIncompatibleErrorBody struct {
+	Message         string          `json:"message"`
+	Type            string          `json:"type"`
+	Code            int             `json:"code"`
+	CurrentSchema   json.RawMessage `json:"current_schema,omitempty"`
+	AttemptedSchema json.RawMessage `json:"attempted_schema,omitempty"`
+	Diff            any             `json:"diff"`
 }
 
 type TableIdentifier struct {

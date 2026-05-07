@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,7 +16,9 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/repo"
 )
 
 type Store interface {
@@ -319,7 +322,7 @@ func (h *Handlers) CommitTable(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, location, err := h.Repo.CommitTable(r.Context(), projectRID(r), namespacePath(chi.URLParam(r, "namespace")), chi.URLParam(r, "table"), &body)
 	if err != nil {
-		writeJSONErr(w, statusFromErr(err), err.Error())
+		writeCommitFailure(w, err)
 		return
 	}
 	metadata, err := h.tableMetadata(r.Context(), updated)
@@ -328,6 +331,50 @@ func (h *Handlers) CommitTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, models.CommitTableResponse{Metadata: metadata, MetadataLocation: location})
+}
+
+// writeCommitFailure renders the 409/422 response envelopes for the
+// two typed errors the repo's CommitTable can surface:
+//
+//   - *repo.RequirementError → 409 Conflict (CommitFailedException)
+//     with the failing assertion `kind` carried in the envelope so
+//     PyIceberg / Spark callers can branch without parsing the
+//     free-form message.
+//
+//   - *domain.SchemaIncompatibleError → 422 Unprocessable Entity
+//     (UnprocessableEntityException) with the structural diff so the
+//     pipeline-authoring UI can build the ALTER TABLE statement
+//     without re-running the diff client-side.
+//
+// Falls back to statusFromErr's heuristic for any other error so
+// pre-existing CommitTable callers (e.g. TestCommitTable_NotFound)
+// keep working byte-exact.
+func writeCommitFailure(w http.ResponseWriter, err error) {
+	var reqErr *repo.RequirementError
+	if errors.As(err, &reqErr) {
+		writeJSON(w, http.StatusConflict, models.ErrorEnvelope{Error: models.ErrorBody{
+			Message: err.Error(),
+			Type:    errorType(http.StatusConflict),
+			Code:    http.StatusConflict,
+			Kind:    reqErr.Kind,
+		}})
+		return
+	}
+	var schemaErr *domain.SchemaIncompatibleError
+	if errors.As(err, &schemaErr) {
+		writeJSON(w, http.StatusUnprocessableEntity, models.SchemaIncompatibleEnvelope{
+			Error: models.SchemaIncompatibleErrorBody{
+				Message:         err.Error(),
+				Type:            "UnprocessableEntityException",
+				Code:            http.StatusUnprocessableEntity,
+				CurrentSchema:   schemaErr.CurrentSchema,
+				AttemptedSchema: schemaErr.AttemptedSchema,
+				Diff:            schemaErr.Diff,
+			},
+		})
+		return
+	}
+	writeJSONErr(w, statusFromErr(err), err.Error())
 }
 
 func (h *Handlers) tableMetadata(ctx context.Context, t *models.IcebergTable) (json.RawMessage, error) {
