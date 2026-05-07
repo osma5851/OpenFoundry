@@ -1,5 +1,9 @@
 // Package models holds wire types for authorization-policy-service.
 //
+// The Go service now carries the consolidated HTTP/API surface: Cedar
+// policy CRUD, ABAC policy evaluation, RBAC roles/groups/permissions,
+// governance/project constraints, checkpoints/purpose records, cipher
+// catalogs, and network-boundary policy resources.
 // CedarPolicy, ABAC, governance, cipher, network-boundary, and top-level RBAC
 // wire formats live here. Restricted-view CRUD is consolidated in
 // identity-federation while evaluation remains here; see

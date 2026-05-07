@@ -19,6 +19,11 @@ import (
 
 // TrainingHandlers ports libs/ml-kernel/src/handlers/training.rs:
 //   - GET  list_training_jobs
+//   - POST create_training_job
+//
+// create_training_job now calls domain/interop and domain/training to
+// resolve external tracking, execute the deterministic training branch,
+// optionally auto-register the best model version, and persist the job.
 //   - POST create_training_job   (chains external-config merge,
 //     training::execute_training, and optional model-version registration)
 type TrainingHandlers struct {

@@ -1,6 +1,12 @@
 // Command authorization-policy-service is the writer + custodian of
 // every Cedar policy + ABAC rule in the platform (per ADR-0027).
 //
+// Current Go surface: Cedar policy CRUD with strict validation and
+// optional `authz.policy.changed` publish, ABAC policy evaluation, RBAC
+// roles/groups/permissions, governance/project constraints,
+// checkpoints/purpose records, cipher catalogs, and network-boundary
+// resources. The Rust crate still has no wired `main`, so this Go
+// binary is the canonical runnable implementation for these routes.
 // This Go port is the canonical implementation while the Rust crate's
 // consolidated binary remains a stub. The live surface includes Cedar policy
 // CRUD, tenant-scoped ABAC policy management/evaluation, top-level RBAC

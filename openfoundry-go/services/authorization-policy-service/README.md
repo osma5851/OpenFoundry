@@ -5,6 +5,18 @@ ADR-0027). The Rust binary is currently `fn main() {}` (S8 / B14
 consolidation pending), so the Go port is the **canonical
 implementation**.
 
+## Port status (2026-05-07)
+
+The Go binary is no longer just the Cedar-policy foundation slice. It
+wires the consolidated `/api/v1` authorization surface: Cedar policy
+CRUD with strict validation, ABAC policies and `/policy-evaluations`,
+RBAC roles/groups/permissions, governance-template applications,
+project constraints, structural-security rules, checkpoints/purpose
+records, cipher channels/licenses, and network-boundary resources.
+
+The latest stub scan found **no productive `StatusNotImplemented` or
+placeholder handler matches** in this service. Test-only matches live in
+`*_test.go` and are excluded from the production scan.
 ## Implemented surface
 
 Cedar policy CRUD over Postgres with strict schema validation via
@@ -112,6 +124,12 @@ A bad source therefore fails with `400 Bad Request` and the row is
 never persisted. The active validator state is hermetic per request
 so concurrent malformed writes can't poison one another.
 
+## Remaining migration notes
+
+Per the [stub audit](../../STUB-AUDIT.md), this service currently has no
+productive stub matches in production Go files. Keep future work focused
+on conformance depth (Cedar/ABAC/RBAC fixtures and cross-service policy
+reload behavior), not on replacing placeholder route handlers.
 ## Remaining follow-up slices
 
 Per the [INVENTORY](../../INVENTORY-authorization-policy-service.md), the
