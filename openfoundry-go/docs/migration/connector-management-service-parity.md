@@ -212,7 +212,7 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 | Databases/warehouses | `postgres`, `mysql`, `mssql`, `oracle`, `jdbc`, `odbc`, `bigquery`, `snowflake`, `databricks` | routes mounted; adapter logic pending | catalog, test-connection, discovery, query, Iceberg | Postgres CDC/e2e and connector tests |
 | Streaming | `kafka`, `kinesis`, schema registry support | routes mounted; adapter logic pending | streaming-sources, test-connection, sync runtime | Kafka real broker/schema registry tests |
 | SaaS/BI/API | `salesforce`, `sap`, `rest_api`, `graphql`, `power_bi`, `tableau`, `iot`, `ldap`, `generic` | routes mounted; adapter logic pending | catalog, contracts, test-connection, discovery/query | connector tests |
-| Runtime bridges | `http_runtime`, `catalog_bridge`, `open_table_catalog` | routes mounted; runtime bridge logic pending | discovery/query, Iceberg, runtime dispatch | virtual-table/iceberg tests |
+| Runtime bridges | `http_runtime`, `catalog_bridge`, `open_table_catalog` | utility packages ported (`internal/adapters/{httpruntime,catalogbridge,opentable}`) with egress policy + agent-proxy + inline-catalog parity; per-adapter wrappers still call stdlib client directly rather than routing through `httpruntime.Client` | discovery/query, Iceberg, runtime dispatch | virtual-table/iceberg tests; `egress.rs` tests ported |
 
 ### outbox
 
