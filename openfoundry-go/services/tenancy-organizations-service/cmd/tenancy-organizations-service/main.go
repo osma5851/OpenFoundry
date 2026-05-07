@@ -63,10 +63,11 @@ func main() {
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
 	ph := &handlers.ProjectsHandlers{Pool: pool}
+	sh := &handlers.SpacesHandlers{Pool: pool}
 	ws := &workspace.Handlers{Repo: &workspace.Repo{Pool: pool}}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, ph, ws, metrics)
+	srv := server.New(cfg, jwt, h, ph, sh, ws, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

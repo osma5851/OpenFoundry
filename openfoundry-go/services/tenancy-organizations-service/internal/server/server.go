@@ -22,7 +22,7 @@ import (
 )
 
 // New builds the http.Server for the foundation slice + workspace surface.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *handlers.ProjectsHandlers, ws *workspace.Handlers, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *handlers.ProjectsHandlers, sh *handlers.SpacesHandlers, ws *workspace.Handlers, m *observability.Metrics) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -59,6 +59,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 		api.Get("/projects/{id}/resources", ph.ListProjectResources)
 		api.Post("/projects/{id}/resources", ph.BindProjectResource)
 		api.Delete("/projects/{id}/resources/{kind}/{resource_id}", ph.UnbindProjectResource)
+
+		// Nexus spaces — the gateway forwards `/api/v1/nexus/spaces`
+		// here (see edge-gateway-service router_table.go), and the
+		// frontend hits the same path (apps/web/src/lib/api/nexus.ts).
+		api.Get("/nexus/spaces", sh.ListSpaces)
+		api.Post("/nexus/spaces", sh.CreateSpace)
+		api.Patch("/nexus/spaces/{id}", sh.UpdateSpace)
 
 		api.Route("/workspace", func(wr chi.Router) {
 			wr.Get("/favorites", ws.ListFavorites)
