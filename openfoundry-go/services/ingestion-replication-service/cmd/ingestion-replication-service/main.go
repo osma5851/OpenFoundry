@@ -63,10 +63,20 @@ func main() {
 		&handlers.HTTPKafkaAdmin{BaseURL: os.Getenv("KAFKA_RUNTIME_URL")},
 		&handlers.HTTPFlinkDeployer{BaseURL: os.Getenv("FLINK_RUNTIME_URL")},
 	)
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, Runtime: runtime}
+	store := &repo.Repo{Pool: pool}
+	h := &handlers.Handlers{Repo: store, Runtime: runtime}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics)
+	// IRF-9: schema-validation + history endpoints, backed by the
+	// shared event-bus-control schema-registry helpers (parses Avro,
+	// runs Confluent compatibility, produces the canonical fingerprint).
+	streamingMeta := server.StreamingMetadata{
+		Schemas: &handlers.SchemasHandler{
+			Store:    store,
+			Registry: handlers.BusControlSchemaRegistry{},
+		},
+	}
+	srv := server.New(cfg, jwt, h, metrics, streamingMeta)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

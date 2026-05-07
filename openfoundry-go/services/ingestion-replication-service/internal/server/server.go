@@ -20,7 +20,17 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/handlers"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics) *http.Server {
+// StreamingMetadata is the optional bundle of streaming submodule
+// handlers (schemas, profiles, topologies, …). Each field is wired
+// independently — nil entries skip route registration so the foundation
+// build stays lean for environments that haven't enabled a submodule.
+//
+// IRF-9 ships the Schemas slot; later slices add their own.
+type StreamingMetadata struct {
+	Schemas *handlers.SchemasHandler
+}
+
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, sm StreamingMetadata) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -44,6 +54,15 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/streams", h.CreateStream)
 		api.Get("/streams/{id}", h.GetStream)
 		api.Patch("/streams/{id}", h.UpdateStream)
+
+		if sm.Schemas != nil {
+			// Confluent-style endpoints: the Rust router uses
+			// `:validate` (a chi-friendly suffix). The Go side mirrors
+			// the wire path exactly so clients compiled against the
+			// Rust binary keep working.
+			api.Post("/streams/{id}/schema:validate", sm.Schemas.ValidateSchema)
+			api.Get("/streams/{id}/schema/history", sm.Schemas.ListSchemaHistory)
+		}
 
 		api.Get("/cdc/streams", h.ListCdcStreams)
 		api.Post("/cdc/streams", h.RegisterCdcStream)
