@@ -70,11 +70,11 @@ Stubs that were claimed pending but are now real production code:
 | 3.7b.2 | **slice 8: JWKS rotation half COMPLETE** | ✅ done | 4 sub-slices, ~3520 LOC of Go (types + interfaces + Postgres + Vault HTTP + HTTP handlers + ~75 tests). |
 | 3.7b.3 | slice 8: SCIM endpoints | ⏳ pending | handlers/scim.rs (1951 LOC) + hardening/scim.rs (515 LOC). Multi-iteration. RFC 7644 conformance + bulk provision/deprovision User + Group. Wires `AdminGuard(ActionScimProvision*, Scim*Resource)`. |
 
-### P4 — Phase 5 decision (HUMAN INPUT REQUIRED)
+### P4 — Phase 5 decision (RESOLVED 2026-05-06)
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 4.8 | go/no-go on pyo3 sidecars | ⏸ blocked-on-human | services: notebook-runtime, pipeline-build, ontology-actions. Loop must NOT decide unilaterally. |
+| 4.8 | go/no-go on pyo3 sidecars | ✅ resolved | User approved gRPC sidecar per `docs/architecture/migration-rust-to-go.md`. Implementation: `proto/runtime/python_runtime.proto` + `python/openfoundry_pyruntime/` (sidecar) + `openfoundry-go/libs/python-sidecar/` (Manager/Client over UDS) + `libs/ontology-kernel/python_runtime.go` (PythonInlineRuntime contract). e2e test passes (`go test ./libs/python-sidecar -run SidecarEndToEnd` with `PYRUNTIME_BINARY` set). Wired into `ontology-actions-service` via `pythonRuntimeAdapter` (PYTHON_SIDECAR_BIN env). Adapters scaffolded for `notebook-runtime-service/internal/kernel/python.go` and `pipeline-build-service/internal/runtime/python.go` — pending handler ports to consume them. Phase 6 unblocked. |
 
 ### P5 — Hygiene
 

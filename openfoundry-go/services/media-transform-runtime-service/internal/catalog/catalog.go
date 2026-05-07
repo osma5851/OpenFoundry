@@ -85,9 +85,13 @@ type CatalogEntry struct {
 	Status HandlerStatus `json:"status"`
 }
 
-// External / NotImplemented constructors keep the static table below
-// readable. native() is unused in the foundation slice and lands
-// alongside the image-handler slice; see goNativePending.
+// Native / External / NotImplemented constructors keep the static table
+// below readable. native() lands alongside the image-handler slice in
+// internal/handlers (golang.org/x/image + disintegration/imaging +
+// HugoSmits86/nativewebp port).
+func native() HandlerStatus {
+	return HandlerStatus{Kind: StatusNative}
+}
 func external(binary string) HandlerStatus {
 	return HandlerStatus{Kind: StatusExternal, Binary: binary}
 }
@@ -95,23 +99,16 @@ func notImplemented(reason string) HandlerStatus {
 	return HandlerStatus{Kind: StatusNotImplemented, Reason: reason}
 }
 
-// goNativePending is the reason returned for entries that are
-// Native on the Rust side but ship as not_implemented in the Go
-// foundation. The image-handler slice flips these to native() once
-// the stdlib + golang.org/x/image port lands. NOTE: drift here is
-// expected — the Go catalog is the truth for the Go binary.
-const goNativePending = "Go native handler lands in follow-up slice (golang.org/x/image + stdlib image port)."
-
 // Catalog is the port of the Rust CATALOG. Order matches the Rust
 // source so downstream consumers render the same row order.
 var Catalog = []CatalogEntry{
-	// ── Image (Go-native handlers land in a follow-up slice) ──────
-	{Key: "thumbnail", Status: notImplemented(goNativePending)},
-	{Key: "resize", Status: notImplemented(goNativePending)},
-	{Key: "resize_within_bounding_box", Status: notImplemented(goNativePending)},
-	{Key: "rotate", Status: notImplemented(goNativePending)},
-	{Key: "crop", Status: notImplemented(goNativePending)},
-	{Key: "grayscale", Status: notImplemented(goNativePending)},
+	// ── Image (pure-Go via stdlib image + disintegration/imaging) ──
+	{Key: "thumbnail", Status: native()},
+	{Key: "resize", Status: native()},
+	{Key: "resize_within_bounding_box", Status: native()},
+	{Key: "rotate", Status: native()},
+	{Key: "crop", Status: native()},
+	{Key: "grayscale", Status: native()},
 	{Key: "geo_tile", Status: notImplemented("Geo tile pyramids land in the geospatial-intelligence-service follow-up.")},
 	{Key: "render_dicom_image_layer", Status: external("dcmtk")},
 	{Key: "ocr", Status: external("tesseract")},

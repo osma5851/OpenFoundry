@@ -23,14 +23,20 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/lineage"
+	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/lineagestore"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/server"
 )
@@ -64,9 +70,11 @@ func main() {
 		log.Warn("kafka_to_iceberg runtime is deferred to a follow-up slice; falling back to HTTP-health for now")
 	}
 
-	// Migrations only run when DATABASE_URL is provided. In
-	// HTTP-health mode the binary still boots without a database.
-	if cfg.DatabaseURL != "" {
+	// AppState is only constructed when DATABASE_URL + JWT_SECRET are
+	// both set — same fallback rule as the Rust HTTP-health mode.
+	// Without those, only /health, /healthz and /metrics are mounted.
+	var lineageOpts *server.Options
+	if cfg.DatabaseURL != "" && cfg.JWTSecret != "" {
 		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Error("pgx pool failed", slog.String("error", err.Error()))
@@ -77,12 +85,33 @@ func main() {
 			log.Error("migrations failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
+
+		store := lineagestore.NewMemoryStore()
+		// CASSANDRA_CONTACT_POINTS unset → in-memory fallback
+		// (matches `LineageRuntimeStore::build` when the contact list
+		// is empty). The store interface lets us swap to Cassandra
+		// without touching handlers/domain.
+		log.Info("lineage runtime store: in-memory (set CASSANDRA_CONTACT_POINTS to enable Cassandra-backed store)")
+
+		state := &lineage.AppState{
+			DB:                         pool,
+			Store:                      store,
+			HTTPClient:                 &http.Client{Timeout: 30 * time.Second},
+			DatasetServiceURL:          cfg.DatasetServiceURL,
+			WorkflowServiceURL:         cfg.WorkflowServiceURL,
+			DistributedPipelineWorkers: int(cfg.DistributedPipelineWorkers),
+		}
+
+		lineageOpts = &server.Options{
+			JWT:      authmw.NewJWTConfig(cfg.JWTSecret),
+			Handlers: handlers.NewHandlers(state),
+		}
 	} else {
-		log.Warn("DATABASE_URL unset — migrations skipped (lineage query surface lands with the runtime slice)")
+		log.Warn("DATABASE_URL or JWT_SECRET unset — booting in HTTP-health-only mode (lineage query surface disabled)")
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	srv := server.New(cfg, metrics, lineageOpts)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

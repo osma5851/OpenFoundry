@@ -24,11 +24,17 @@ func NextFireAfter(s *CronSchedule, after time.Time) (time.Time, bool) {
 	localStart := cursor.In(tz)
 	capYear := localStart.Year() + maxForwardYears
 
+	// Walk the wall-clock domain on a naive UTC carrier so DST
+	// normalisation never mutates the hour the walker just set —
+	// equivalent to Rust's `NaiveDateTime`. The schedule's tz is
+	// only consulted inside resolveWallClock when we're ready to
+	// project a candidate to a real UTC instant.
+	naive := toNaive(localStart)
 	// Backtrack the search by two hours so an ambiguous instant
 	// shortly before `cursor` (DST fall-back overlap) still gets
 	// re-considered. The UTC-greater-than-`after` check below
 	// filters out anything actually before `after`.
-	current := localStart.Add(-2 * time.Hour)
+	current := naive.Add(-2 * time.Hour)
 	for {
 		if current.Year() > capYear {
 			return time.Time{}, false
@@ -87,6 +93,16 @@ type localResult struct {
 	single time.Time
 	early  time.Time
 	late   time.Time
+}
+
+// toNaive strips any zone information and returns a wall-clock
+// carrier rooted in time.UTC. The walker uses it like Rust's
+// NaiveDateTime: arithmetic and time.Date calls won't trigger DST
+// normalisation because UTC has no transitions.
+func toNaive(t time.Time) time.Time {
+	y, mo, d := t.Date()
+	h, mi, s := t.Clock()
+	return time.Date(y, mo, d, h, mi, s, 0, time.UTC)
 }
 
 // resolveWallClock maps a wall-clock (Y,M,D,h,m,s) candidate
@@ -279,7 +295,7 @@ func advanceToNextMonth(s *CronSchedule, current time.Time, capYear int) (time.T
 			return time.Time{}, false
 		}
 		if s.Months.Contains(month) {
-			return time.Date(year, time.Month(month), 1, 0, 0, 0, 0, current.Location()), true
+			return time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC), true
 		}
 	}
 }
@@ -289,34 +305,34 @@ func advanceToNextDay(current time.Time, capYear int) (time.Time, bool) {
 	if next.Year() > capYear {
 		return time.Time{}, false
 	}
-	return time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, current.Location()), true
+	return time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, time.UTC), true
 }
 
 // --- per-field finer-unit helpers ---------------------------------------
 
 func withHourResetFiner(t time.Time, h int) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), h, 0, 0, 0, t.Location())
+	return time.Date(t.Year(), t.Month(), t.Day(), h, 0, 0, 0, time.UTC)
 }
 
 func withMinuteResetFiner(t time.Time, m int) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), m, 0, 0, t.Location())
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), m, 0, 0, time.UTC)
 }
 
 func withSecond(t time.Time, s int) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), s, 0, t.Location())
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), s, 0, time.UTC)
 }
 
 func withHourAdvanceOne(t time.Time) (time.Time, bool) {
 	if t.Hour() == 23 {
 		next := t.AddDate(0, 0, 1)
-		return time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, t.Location()), true
+		return time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, time.UTC), true
 	}
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, t.Location()), true
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, time.UTC), true
 }
 
 func withMinuteAdvanceOne(t time.Time) (time.Time, bool) {
 	if t.Minute() == 59 {
 		return withHourAdvanceOne(t)
 	}
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute()+1, 0, 0, t.Location()), true
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute()+1, 0, 0, time.UTC), true
 }

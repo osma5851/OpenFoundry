@@ -247,6 +247,58 @@ single coherent slice without breaking any test.
 `function_package.rs` (207) for the next-next iteration since they
 chain into property / function-runtime concerns.
 
+### Iter 3 — 2026-05-07 — handlers/objects CRUD slice
+
+- Audit of the kernel found the doc was stale: the Go tree is at LOC
+  parity with Rust (32 191 vs 32 450) and `go test -race` is green
+  workspace-wide. Tier 0–4 are largely complete except for the heavy
+  `handlers/objects.rs` (3 328 LOC, 65 funcs) which had only its 7
+  shared helpers ported (`LoadObjectInstance`, `LoadRepoObjectFromStore`,
+  `InstanceToRepoObject`, `ApplyObjectWrite`, `AppendObjectRevision`,
+  `ValueAsStoreText`, `FindObjectIDByProperty`).
+- This iteration ports the **CRUD slice** of `handlers/objects.rs`:
+  `create_object`, `list_objects`, `get_object`, `update_object`,
+  `delete_object` plus the request/response payload types
+  (`CreateObjectRequest`, `UpdateObjectRequest`,
+  `ListObjectsResponse`) and the `Mount(r, state)` chi-router
+  registration. Lives in
+  `libs/ontology-kernel/handlers/objects/crud.go` so the existing
+  `objects.go` (helpers) stays untouched.
+- Wire-compat invariants pinned by 16 new tests:
+  - 5 routes registered at `/ontology/types/{type_id}/objects` and
+    `/ontology/types/{type_id}/objects/{obj_id}` (verified via
+    `chi.Walk`).
+  - All 5 endpoints return 401 without authenticated claims.
+  - `GetObject` 200/404/403/400 cases including the
+    forbidden-clearance path (object marked `pii`, caller default
+    rank 0).
+  - `ListObjects` envelope `{"data","total","page","per_page"}` with
+    `per_page` default 20, clamp 1..100, page default 1, in-memory
+    pagination over `ListByType` matching the Rust offset/end window.
+  - `DeleteObject` 204 + revision append to action log; 404 path.
+  - `UpdateObject` early-exit branches: 400 on bad JSON, 404 on
+    missing object.
+  - `CreateObject` early-exit branches: 400 on invalid marking, 400
+    on bad JSON.
+  - `mergePatchProperties` shallow-merge + non-object rejection
+    matching Rust `properties must be a JSON object when replace=false`.
+- Workspace `go build ./...`, `go vet ./...`,
+  `go test -race -count=1 ./...` all green.
+- `state.DB`-backed positive paths for create/update
+  (`LoadEffectiveProperties` + `ValidateObjectProperties`) are not
+  exercised here — they require a live Postgres harness. They land
+  alongside the next slice that adds the testcontainers fixture for
+  the kernel handlers; the unit-level invariants above already pin
+  every wire shape that the handlers can produce without DB.
+
+**Next iteration target:** the **query/knn slice** of
+`handlers/objects.rs` — `query_objects`, `knn_objects` plus the
+vector-extraction + scoring helpers
+(`extract_vector_from_object_json`, `extract_vector_from_value`,
+`knn_score`, `dot_product`, `euclidean_distance`). ~480 Rust LOC.
+Same testing strategy: in-mem stores cover the no-DB paths;
+DB-backed positive paths land with the testcontainers fixture.
+
 ---
 
 ## Decisions deferred for human review

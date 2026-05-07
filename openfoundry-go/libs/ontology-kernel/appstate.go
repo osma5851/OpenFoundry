@@ -53,4 +53,10 @@ type AppState struct {
 	//
 	// Maps to Rust `pub connector_management_service_url: String`.
 	ConnectorManagementServiceURL string
+
+	// PythonRuntime is the optional bridge to the openfoundry-pyruntime
+	// sidecar. When nil, ExecuteInlinePythonFunction returns
+	// ErrPythonRuntimeNotWired (legacy behaviour). Wire it from the
+	// service binary's main with libs/python-sidecar.
+	PythonRuntime PythonInlineRuntime
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/domain/engine"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/models"
 )
 
@@ -86,7 +87,7 @@ func (r *MatchRuleRepo) Create(ctx context.Context, body models.CreateMatchRuleR
             RETURNING id, name, description, status, entity_type,
                       blocking_strategy, conditions, review_threshold,
                       auto_merge_threshold, created_at, updated_at`,
-		uuid.New(), trimStr(body.Name), desc, status, entityType,
+		engine.MustNewUUIDv7(), trimStr(body.Name), desc, status, entityType,
 		blockingJSON, conditionsJSON, reviewThreshold, autoMergeThreshold,
 	)
 	return scanMatchRule(row)

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/domain/engine"
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/models"
 )
 
@@ -72,7 +73,7 @@ func (r *MergeStrategyRepo) Create(ctx context.Context, body models.CreateMergeS
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id, name, description, status, entity_type,
                       default_strategy, rules, created_at, updated_at`,
-		uuid.New(), trimStr(body.Name), desc, status, entityType, defaultStrategy, rulesJSON,
+		engine.MustNewUUIDv7(), trimStr(body.Name), desc, status, entityType, defaultStrategy, rulesJSON,
 	)
 	return scanMergeStrategy(row)
 }

@@ -10,18 +10,20 @@
 //     MEDIA_TRANSFORM_BAD_INPUT    (400)
 //     MEDIA_TRANSFORM_HANDLER_ERROR (500)
 //
-// Foundation slice: every catalog entry returns 501 NOT_IMPLEMENTED
-// (the Go-side native handlers land in a follow-up slice; the
-// goNativePending reason is propagated to the response so callers
-// can degrade. See internal/catalog/catalog.go).
+// Native dispatch (StatusNative) routes to internal/handlers and
+// charges compute-seconds via libs/observability/costmodel — fully
+// 1:1 with the Rust runtime.rs / handlers / image_ops.rs surface.
 package runtime
 
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 
+	"github.com/openfoundry/openfoundry-go/libs/observability/costmodel"
 	"github.com/openfoundry/openfoundry-go/services/media-transform-runtime-service/internal/catalog"
+	"github.com/openfoundry/openfoundry-go/services/media-transform-runtime-service/internal/handlers"
 )
 
 // TransformInput is the POST /transform body.
@@ -123,24 +125,52 @@ func TransformHandler(w http.ResponseWriter, r *http.Request) {
 			Reason:         &reason,
 		})
 	case catalog.StatusNative:
-		// Foundation: no native handlers are wired yet. Once the
-		// follow-up slice lands, dispatch into handlers.Dispatch
-		// here and return StatusOK with the encoded output bytes.
-		// For now: defensive 501 (this branch is unreachable while
-		// the catalog has zero Native entries; kept for the slice
-		// that flips them).
-		if _, err := decodeBase64(body.BytesBase64); err != nil {
+		src, err := decodeBase64(body.BytesBase64)
+		if err != nil {
 			writeError(w, http.StatusBadRequest, CodeBadInput, "base64 decode failed: "+err.Error())
 			return
 		}
-		reason := "Go native handler lands in follow-up slice (golang.org/x/image port)"
+		billedBytes := uint64(len(src))
+		out, err := handlers.Dispatch(body.Kind, body.MimeType, body.Params, src)
+		if err != nil {
+			writeHandlerError(w, err)
+			return
+		}
+		// Charge compute-seconds via the published cost table. An
+		// off-table key cannot reach this branch (catalog parity is
+		// asserted by the parity test), so a missing rate is a bug —
+		// fall back to 0 to preserve the wire-format invariant.
+		var computeSeconds uint64
+		if cs, ok := costmodel.ChargeComputeSeconds(body.Kind, billedBytes); ok {
+			computeSeconds = cs
+		}
+		var encoded *string
+		if out.OutputBytes != nil {
+			s := EncodeBase64(out.OutputBytes)
+			encoded = &s
+		}
 		writeJSON(w, http.StatusOK, TransformOutput{
-			Status:         StatusNotImplemented,
-			Kind:           body.Kind,
-			OutputMimeType: body.MimeType,
-			ComputeSeconds: 0,
-			Reason:         &reason,
+			Status:            StatusOK,
+			Kind:              body.Kind,
+			OutputMimeType:    out.OutputMimeType,
+			ComputeSeconds:    computeSeconds,
+			OutputBytesBase64: encoded,
+			OutputJSON:        out.OutputJSON,
 		})
+	}
+}
+
+// writeHandlerError maps the sentinel categories from internal/handlers
+// to the wire-format error codes. Decode/encode/unsupported-mime/invalid-
+// params are caller-visible (400); anything else surfaces as a 500.
+func writeHandlerError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, handlers.ErrUnsupportedMime),
+		errors.Is(err, handlers.ErrInvalidParams),
+		errors.Is(err, handlers.ErrDecode):
+		writeError(w, http.StatusBadRequest, CodeBadInput, err.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, CodeHandlerError, err.Error())
 	}
 }
 

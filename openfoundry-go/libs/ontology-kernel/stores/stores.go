@@ -17,15 +17,12 @@
 // carries a single [Stores] handle so handlers stay infrastructure-
 // agnostic.
 //
-// Coverage gap vs Rust: the Rust source declares seven trait fields —
+// Coverage vs Rust: the Rust source declares seven trait fields —
 // objects / links / actions / definitions / read_models / search /
-// object_set_materializations. The Go storage-abstraction package
-// currently exposes the first three (plus SchemaStore + SessionStore
-// that the Rust crate does not use here). The remaining four trait
-// surfaces (DefinitionStore, ReadModelStore, SearchBackend,
-// ObjectSetMaterializationStore) will land alongside the relevant
-// domain-layer iters that actually consume them; until then [Stores]
-// only models the three production stores.
+// object_set_materializations. The Go port ships six (Search added
+// alongside the function-runtime accessibility cascade); the
+// ObjectSetMaterializationStore lands with the bounded context that
+// consumes it.
 package stores
 
 import storageabstraction "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
@@ -34,19 +31,30 @@ import storageabstraction "github.com/openfoundry/openfoundry-go/libs/storage-ab
 // trait-object bag that ontology-kernel handlers route their I/O
 // through.
 type Stores struct {
-	Objects storageabstraction.ObjectStore
-	Links   storageabstraction.LinkStore
-	Actions storageabstraction.ActionLogStore
+	Objects     storageabstraction.ObjectStore
+	Links       storageabstraction.LinkStore
+	Actions     storageabstraction.ActionLogStore
+	Definitions storageabstraction.DefinitionStore
+	ReadModels  storageabstraction.ReadModelStore
+	// Search is the optional lexical/vector backend. When nil,
+	// `LoadAccessibleObjectSet` falls back to ObjectStore.ListByType
+	// (matches the Rust feature-flag fallback when SearchBackend is
+	// not configured).
+	Search storageabstraction.SearchBackend
 }
 
 // NewInMemory mirrors `Stores::in_memory()`. Returns a Stores backed
-// by hand-rolled in-process fakes from [mock.go]. Intended for unit
-// tests and for smoke-testing handlers without spinning up
+// by hand-rolled in-process fakes (`mock.go` for the legacy three +
+// `inmemory_definitions.go` for the read-side bag). Intended for
+// unit tests and for smoke-testing handlers without spinning up
 // infrastructure.
 func NewInMemory() Stores {
 	return Stores{
-		Objects: NewInMemoryObjectStore(),
-		Links:   NewInMemoryLinkStore(),
-		Actions: NewInMemoryActionLogStore(),
+		Objects:     NewInMemoryObjectStore(),
+		Links:       NewInMemoryLinkStore(),
+		Actions:     NewInMemoryActionLogStore(),
+		Definitions: NewInMemoryDefinitionStore(),
+		ReadModels:  NewInMemoryReadModelStore(),
+		Search:      storageabstraction.NewInMemorySearchBackend(),
 	}
 }

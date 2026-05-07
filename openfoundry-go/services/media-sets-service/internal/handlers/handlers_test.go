@@ -86,3 +86,4 @@ func TestListMediaSetsRequiresAuth(t *testing.T) {
 	h.ListMediaSets(rec, req)
 	assert.Equal(t, 401, rec.Code)
 }
+

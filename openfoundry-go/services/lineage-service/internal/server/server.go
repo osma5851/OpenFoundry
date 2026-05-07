@@ -1,7 +1,10 @@
 // Package server hosts the HTTP-health-mode surface for lineage-service.
-// Mirrors the Rust binary's RuntimeMode::HttpHealth — only `/health`
-// is publicly mounted; the JWT-gated /api/v1 lineage query surface
-// lands in a follow-up slice.
+//
+// Mirrors the Rust binary's RuntimeMode::HttpHealth: a public /health
+// endpoint plus the JWT-gated /api/v1/lineage query + workflow-sync
+// surface ported from `services/lineage-service/src/handlers/lineage.rs`.
+// The Kafka → Iceberg sink lives in a separate runtime gated on
+// iceberg-go availability and is not mounted here.
 package server
 
 import (
@@ -16,13 +19,23 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/lineage-service/internal/handlers"
 )
 
-func New(cfg *config.Config, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, m)
+// Options bundles the optional lineage-domain plumbing. When nil, the
+// /api/v1/lineage routes are skipped (HTTP-health-only mode, same as
+// the Rust impl when DATABASE_URL is unset).
+type Options struct {
+	JWT      *authmw.JWTConfig
+	Handlers *handlers.Handlers
+}
+
+func New(cfg *config.Config, m *observability.Metrics, opts *Options) *http.Server {
+	r := buildRouter(cfg, m, opts)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -31,14 +44,14 @@ func New(cfg *config.Config, m *observability.Metrics) *http.Server {
 	}
 }
 
-func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, m)
+func BuildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) http.Handler {
+	return buildRouter(cfg, m, opts)
 }
 
-func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, m *observability.Metrics, opts *Options) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
-	r.Use(chimw.Timeout(15 * time.Second))
+	r.Use(chimw.Timeout(30 * time.Second))
 
 	// Plain text "ok" matches the Rust HttpHealth mode body verbatim.
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -52,6 +65,21 @@ func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 	})
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
+	}
+
+	if opts != nil && opts.JWT != nil && opts.Handlers != nil {
+		r.Route("/api/v1/lineage", func(api chi.Router) {
+			api.Use(authmw.Middleware(opts.JWT))
+
+			api.Get("/datasets/{id}", opts.Handlers.GetDatasetLineage)
+			api.Get("/datasets/{id}/columns", opts.Handlers.GetDatasetColumnLineage)
+			api.Get("/datasets/{id}/impact", opts.Handlers.GetDatasetLineageImpact)
+			api.Post("/datasets/{id}/builds", opts.Handlers.TriggerDatasetLineageBuilds)
+			api.Get("/full", opts.Handlers.GetFullLineage)
+
+			api.Post("/workflows/{id}/sync", opts.Handlers.SyncWorkflowLineage)
+			api.Delete("/workflows/{id}", opts.Handlers.DeleteWorkflowLineage)
+		})
 	}
 
 	return r

@@ -27,4 +27,13 @@
 // EmitToOutbox composes audit envelope + outbox.Enqueue inside a
 // caller-owned pgx transaction so the SQL mutation and the audit
 // emission land atomically (ADR-0022).
+//
+// HTTP middleware
+//
+// Middleware (and MiddlewareWithLogger) is the chi-compatible port
+// of the Rust `AuditLayer` tower::Layer: emits one structured
+// `request handled` slog record per request, tagged with
+// `category=audit`, carrying http_method / http_path / http_status /
+// duration_ms. Mount once per Router; the audit-compliance
+// collector subscribes to records carrying that category.
 package audittrail

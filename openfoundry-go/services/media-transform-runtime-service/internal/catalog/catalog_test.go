@@ -58,13 +58,12 @@ func TestCatalogContainsAllRustKeys(t *testing.T) {
 	assert.Equal(t, len(expectedKeys), len(Catalog), "catalog length must match Rust source")
 }
 
-func TestImageHandlerStatusInFoundation(t *testing.T) {
+func TestImageHandlersAreNative(t *testing.T) {
 	t.Parallel()
 	for _, k := range []string{"thumbnail", "resize", "resize_within_bounding_box", "rotate", "crop", "grayscale"} {
 		s, ok := Lookup(k)
 		require.True(t, ok)
-		assert.Equal(t, StatusNotImplemented, s.Kind, "%s should be not_implemented in Go foundation", k)
-		assert.Contains(t, s.Reason, "follow-up slice", "reason should reference the follow-up slice")
+		assert.Equal(t, StatusNative, s.Kind, "%s should be native in Go (matches Rust)", k)
 	}
 }
 

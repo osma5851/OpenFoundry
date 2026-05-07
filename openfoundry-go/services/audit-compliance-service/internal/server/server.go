@@ -18,9 +18,21 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/lineagedeletion"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/retentionpolicy"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/sds"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics) *http.Server {
+// Subsystems bundles the per-subsystem handler sets so server.New
+// stays tidy as the surface grows.
+type Subsystems struct {
+	Audit            *handlers.Handlers
+	SDS              *sds.Handlers
+	Retention        *retentionpolicy.Handlers
+	LineageDeletion  *lineagedeletion.Handlers
+}
+
+func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observability.Metrics) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -31,27 +43,91 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
+	// ── Audit-events append (anonymous; gateway / in-cluster posts) ──
+	if sub.Audit != nil {
+		r.Post("/api/v1/audit/events", sub.Audit.AppendEvent)
+	}
+
+	// ── SDS scan-only endpoint (anonymous, like Rust impl) ───────────
+	if sub.SDS != nil {
+		r.Post("/api/v1/sds/scan", sub.SDS.ScanSensitiveData)
+	}
+
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 
-		api.Get("/audit-events", h.ListAuditEvents)
-		api.Get("/audit-policies", h.ListAuditPolicies)
-		api.Get("/compliance-reports", h.ListComplianceReports)
+		// ── Audit ledger ─────────────────────────────────────────────
+		if sub.Audit != nil {
+			api.Get("/audit/overview", sub.Audit.GetOverview)
+			api.Get("/audit/events", sub.Audit.ListEvents)
+			api.Get("/audit/events/{id}", sub.Audit.GetEvent)
+			api.Get("/audit/anomalies", sub.Audit.ListAnomalies)
+			api.Get("/audit/collectors", sub.Audit.ListCollectors)
+			// Legacy list endpoint (pre-existing).
+			api.Get("/audit-events", sub.Audit.ListAuditEvents)
 
-		api.Get("/retention-policies", h.ListRetentionPolicies)
-		api.Post("/retention-policies", h.CreateRetentionPolicy)
-		api.Get("/retention-policies/{id}", h.GetRetentionPolicy)
-		api.Patch("/retention-policies/{id}", h.UpdateRetentionPolicy)
-		api.Get("/retention-jobs", h.ListRetentionJobs)
+			api.Get("/audit/policies", sub.Audit.ListAuditPolicies)
+			api.Post("/audit/policies", sub.Audit.CreateAuditPolicy)
+			api.Patch("/audit/policies/{id}", sub.Audit.UpdateAuditPolicy)
+			api.Get("/audit-policies", sub.Audit.ListAuditPolicies)
 
-		api.Get("/sds-scan-jobs", h.ListSDSScanJobs)
-		api.Get("/sds-scan-jobs/{job_id}/issues", h.ListSDSIssues)
-		api.Get("/sds-remediation-rules", h.ListSDSRemediationRules)
+			api.Get("/audit/reports", sub.Audit.ListComplianceReports)
+			api.Post("/audit/reports", sub.Audit.GenerateReport)
+			api.Get("/compliance-reports", sub.Audit.ListComplianceReports)
 
-		api.Get("/lineage-deletion-requests", h.ListLineageDeletionRequests)
-		api.Post("/lineage-deletion-requests", h.CreateLineageDeletionRequest)
+			api.Post("/audit/gdpr/export", sub.Audit.ExportSubjectData)
+		}
 
-		api.Get("/saga-audit-events", h.ListSagaAuditEvents)
+		// ── Retention policy (P4 surface) ────────────────────────────
+		if sub.Retention != nil {
+			api.Get("/retention/policies", sub.Retention.ListPolicies)
+			api.Post("/retention/policies", sub.Retention.CreatePolicyHandler)
+			api.Get("/retention/policies/{id}", sub.Retention.GetPolicyHandler)
+			api.Put("/retention/policies/{id}", sub.Retention.UpdatePolicyHandler)
+			api.Patch("/retention/policies/{id}", sub.Retention.UpdatePolicyHandler)
+			api.Delete("/retention/policies/{id}", sub.Retention.DeletePolicyHandler)
+			api.Get("/retention/jobs", sub.Retention.ListJobs)
+			api.Post("/retention/jobs", sub.Retention.RunJobHandler)
+			api.Get("/datasets/{dataset_id}/retention", sub.Retention.GetDatasetRetention)
+			api.Get("/transactions/{transaction_id}/retention", sub.Retention.GetTransactionRetention)
+			api.Get("/datasets/{rid}/applicable-policies", sub.Retention.ApplicablePolicies)
+			api.Get("/datasets/{rid}/retention-preview", sub.Retention.RetentionPreviewHandler)
+		}
+
+		// ── Legacy retention-policy aliases (pre-existing) ───────────
+		if sub.Audit != nil {
+			api.Get("/retention-policies", sub.Audit.ListRetentionPolicies)
+			api.Post("/retention-policies", sub.Audit.CreateRetentionPolicy)
+			api.Get("/retention-policies/{id}", sub.Audit.GetRetentionPolicy)
+			api.Patch("/retention-policies/{id}", sub.Audit.UpdateRetentionPolicy)
+			api.Get("/retention-jobs", sub.Audit.ListRetentionJobs)
+		}
+
+		// ── SDS subsystem (auth-only — scan-only path is anonymous) ──
+		if sub.SDS != nil {
+			api.Post("/sds/jobs", sub.SDS.RunScanJob)
+			api.Patch("/sds/issues/{issue_id}", sub.SDS.MarkIssue)
+			api.Post("/sds/rules", sub.SDS.CreateRemediationRule)
+		}
+		// Legacy list endpoints.
+		if sub.Audit != nil {
+			api.Get("/sds-scan-jobs", sub.Audit.ListSDSScanJobs)
+			api.Get("/sds-scan-jobs/{job_id}/issues", sub.Audit.ListSDSIssues)
+			api.Get("/sds-remediation-rules", sub.Audit.ListSDSRemediationRules)
+		}
+
+		// ── Lineage deletion ─────────────────────────────────────────
+		if sub.LineageDeletion != nil {
+			api.Post("/lineage/deletions", sub.LineageDeletion.RequestDeletion)
+		}
+		if sub.Audit != nil {
+			api.Get("/lineage-deletion-requests", sub.Audit.ListLineageDeletionRequests)
+			api.Post("/lineage-deletion-requests", sub.Audit.CreateLineageDeletionRequest)
+		}
+
+		if sub.Audit != nil {
+			api.Get("/saga-audit-events", sub.Audit.ListSagaAuditEvents)
+		}
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

@@ -26,10 +26,11 @@ func writeJSONErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// validSchema mirrors the DB CHECK constraint.
+// validSchema mirrors the DB CHECK constraint, including the H7 DICOM
+// extension landed in migration 0008_dicom_schema.sql.
 func validSchema(s string) bool {
 	switch s {
-	case "IMAGE", "AUDIO", "VIDEO", "DOCUMENT", "SPREADSHEET", "EMAIL":
+	case "IMAGE", "AUDIO", "VIDEO", "DOCUMENT", "SPREADSHEET", "EMAIL", "DICOM":
 		return true
 	}
 	return false
@@ -91,7 +92,7 @@ func (h *Handlers) CreateMediaSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validSchema(body.Schema) {
-		writeJSONErr(w, http.StatusBadRequest, "schema must be IMAGE / AUDIO / VIDEO / DOCUMENT / SPREADSHEET / EMAIL")
+		writeJSONErr(w, http.StatusBadRequest, "schema must be IMAGE / AUDIO / VIDEO / DOCUMENT / SPREADSHEET / EMAIL / DICOM")
 		return
 	}
 	if body.TransactionPolicy != nil && !validTransactionPolicy(*body.TransactionPolicy) {

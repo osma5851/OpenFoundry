@@ -12,9 +12,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -22,7 +24,10 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/lineagedeletion"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/repo"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/retentionpolicy"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/sds"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/server"
 )
 
@@ -61,10 +66,17 @@ func main() {
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	lineageURL := os.Getenv("LINEAGE_SERVICE_URL")
+	subsystems := &server.Subsystems{
+		Audit:           &handlers.Handlers{Repo: &repo.Repo{Pool: pool}},
+		SDS:             sds.New(pool),
+		Retention:       retentionpolicy.New(pool),
+		LineageDeletion: lineagedeletion.New(pool, lineagedeletion.NewHTTPClient(httpClient), nil, lineageURL),
+	}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics)
+	srv := server.New(cfg, jwt, subsystems, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

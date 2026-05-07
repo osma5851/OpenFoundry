@@ -77,6 +77,11 @@ func main() {
 	h := &handlers.Handlers{
 		Rules:           &repo.MatchRuleRepo{Pool: pool},
 		MergeStrategies: &repo.MergeStrategyRepo{Pool: pool},
+		Jobs:            &repo.FusionJobRepo{Pool: pool},
+		Clusters:        &repo.ClusterRepo{Pool: pool},
+		Review:          &repo.ReviewQueueRepo{Pool: pool},
+		Golden:          &repo.GoldenRecordRepo{Pool: pool},
+		Overview:        &repo.OverviewRepo{Pool: pool},
 	}
 	metrics := observability.NewMetrics()
 

@@ -162,6 +162,44 @@ func (r *Repo) DeleteMediaSet(ctx context.Context, rid string) (bool, error) {
 	return cmd.RowsAffected() > 0, nil
 }
 
+// UpdateRetentionSeconds rewrites the retention window on a media set
+// and returns the previous value + the new row. The reaper consumes
+// the previous value to decide whether the change reduces the window
+// (and therefore needs an immediate sweep).
+//
+// Returns (nil, nil, nil) when the row does not exist.
+func (r *Repo) UpdateRetentionSeconds(ctx context.Context, rid string, newSeconds int64) (previous int64, updated *models.MediaSet, err error) {
+	row := r.Pool.QueryRow(ctx,
+		`UPDATE media_sets SET retention_seconds = $2
+		  WHERE rid = $1
+		 RETURNING (
+		     SELECT retention_seconds FROM media_sets WHERE rid = $1
+		 ) AS previous,
+		   rid, project_rid, name, schema, allowed_mime_types,
+		   transaction_policy, retention_seconds, virtual, source_rid,
+		   markings, created_at, created_by`,
+		rid, newSeconds,
+	)
+	v := &models.MediaSet{}
+	if err := row.Scan(&previous,
+		&v.RID, &v.ProjectRID, &v.Name, &v.Schema,
+		&v.AllowedMimeTypes, &v.TransactionPolicy, &v.RetentionSeconds,
+		&v.Virtual, &v.SourceRID, &v.Markings, &v.CreatedAt, &v.CreatedBy,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil, nil
+		}
+		return 0, nil, err
+	}
+	if v.AllowedMimeTypes == nil {
+		v.AllowedMimeTypes = []string{}
+	}
+	if v.Markings == nil {
+		v.Markings = []string{}
+	}
+	return previous, v, nil
+}
+
 type rowLikeT interface{ Scan(...any) error }
 
 func scanMediaSet(r rowLikeT) (*models.MediaSet, error) {

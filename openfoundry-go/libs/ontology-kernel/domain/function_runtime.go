@@ -46,11 +46,10 @@ import (
 var typescriptRuntimeRunner string
 
 // ErrPythonRuntimeNotWired is returned by ExecuteInlinePythonFunction
-// while the kernel does not embed a Python interpreter. Mapped by the
-// handler layer to HTTP 501. The parser + capability validator still
-// work for python configs so create/update/validate paths are
-// fully functional.
-var ErrPythonRuntimeNotWired = errors.New("execute_inline_python_function: python runtime not yet wired in Go (Rust uses PyO3; Go port awaits an out-of-process bridge)")
+// when the host service has not injected a PythonInlineRuntime into
+// AppState. The parser + capability validator still work for python
+// configs so create/update/validate paths are fully functional.
+var ErrPythonRuntimeNotWired = errors.New("execute_inline_python_function: python runtime not wired (set AppState.PythonRuntime to a libs/python-sidecar Manager)")
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -543,21 +542,92 @@ func ExecuteInlineFunction(
 
 // ExecuteInlinePythonFunction is the Python entry point.
 //
-// Sub-phase deferred: returns ErrPythonRuntimeNotWired. The Rust
-// version uses PyO3 to embed CPython; the Go binary would need an
-// out-of-process bridge (separate sidecar) which is tracked as a
-// follow-up.
+// When AppState.PythonRuntime is wired (by injecting a Manager from
+// libs/python-sidecar) the function builds the same JSON envelope the
+// Rust PyO3 path used and forwards execution to the sidecar; the
+// sidecar returns the enriched result (payload + stdout/stderr already
+// merged) which is re-emitted to the caller verbatim. When the runtime
+// is nil, ErrPythonRuntimeNotWired is returned so callers map it to a
+// 501 — the parse + validate paths keep working regardless.
 func ExecuteInlinePythonFunction(
-	_ context.Context,
-	_ *ontologykernel.AppState,
-	_ *authmw.Claims,
-	_ *models.ActionType,
-	_ *ObjectInstance,
-	_ map[string]json.RawMessage,
-	_ *ResolvedInlineFunction,
-	_ *string,
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	action *models.ActionType,
+	target *ObjectInstance,
+	parameters map[string]json.RawMessage,
+	resolved *ResolvedInlineFunction,
+	justification *string,
 ) (json.RawMessage, error) {
-	return nil, ErrPythonRuntimeNotWired
+	if state == nil || state.PythonRuntime == nil || resolved == nil || resolved.Config.Python == nil {
+		if state == nil || state.PythonRuntime == nil {
+			return nil, ErrPythonRuntimeNotWired
+		}
+		return nil, errors.New("execute_inline_python_function: missing python config")
+	}
+
+	objectSet, err := LoadAccessibleObjectSet(ctx, state, claims, action.ObjectTypeID)
+	if err != nil {
+		return nil, err
+	}
+	linked := []json.RawMessage{}
+	if target != nil {
+		linked, err = LoadLinkedObjects(ctx, state, claims, target.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	serviceToken, err := issueInlineFunctionToken(state, claims)
+	if err != nil {
+		return nil, err
+	}
+
+	var targetJSON any
+	if target != nil {
+		targetJSON = ObjectToJSON(*target)
+	}
+	actionJSON := map[string]any{
+		"id":                   action.ID,
+		"name":                 action.Name,
+		"display_name":         action.DisplayName,
+		"object_type_id":       action.ObjectTypeID,
+		"operation_kind":       action.OperationKind,
+		"permission_key":       action.PermissionKey,
+		"authorization_policy": action.AuthorizationPolicy,
+	}
+	envelope := map[string]any{
+		"context": map[string]any{
+			"action":        actionJSON,
+			"targetObject":  targetJSON,
+			"parameters":    parameters,
+			"objectSet":     objectSet,
+			"linkedObjects": linked,
+			"justification": justification,
+			"contextNow":    time.Now().UTC().Format(time.RFC3339Nano),
+		},
+		"policy":             resolved.Capabilities,
+		"functionPackage":    resolved.Package,
+		"serviceToken":       serviceToken,
+		"ontologyServiceUrl": state.OntologyServiceURL,
+		"aiServiceUrl":       state.AIServiceURL,
+	}
+	envelopeJSON, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("encode python envelope: %w", err)
+	}
+
+	timeoutSecs := uint32(resolved.Capabilities.TimeoutSeconds)
+	if timeoutSecs == 0 {
+		timeoutSecs = 30
+	}
+	out, err := state.PythonRuntime.ExecuteInline(ctx, resolved.Config.Python.Source, envelopeJSON, timeoutSecs)
+	if err != nil {
+		return nil, err
+	}
+	if len(out.ResultJSON) == 0 {
+		return json.RawMessage(`null`), nil
+	}
+	return json.RawMessage(out.ResultJSON), nil
 }
 
 // executeInlineTypeScriptFunction is the full 1:1 port of the Rust
@@ -762,10 +832,12 @@ func issueInlineFunctionToken(state *ontologykernel.AppState, claims *authmw.Cla
 
 // LoadAccessibleObjectSet mirrors `pub async fn load_accessible_object_set`.
 //
-// The Rust impl routes through SearchBackend.search; until the
-// SearchBackend interface lands in Go, this helper falls back to
-// ObjectStore.ListByType (capped at 5,000 to match the Rust limit)
-// and applies the same EnsureObjectAccess + ObjectToJSON cascade.
+// Routes through `state.Stores.Search` when configured (matching the
+// Rust SearchBackend.search path). When Search is nil the helper
+// falls back to `ObjectStore.ListByType` (capped at 5,000 to match the
+// Rust limit) and applies the same EnsureObjectAccess + ObjectToJSON
+// cascade — keeps unit tests + air-gapped binaries working without a
+// search engine.
 func LoadAccessibleObjectSet(
 	ctx context.Context,
 	state *ontologykernel.AppState,
@@ -774,6 +846,72 @@ func LoadAccessibleObjectSet(
 ) ([]json.RawMessage, error) {
 	tenant := TenantFromClaims(claims)
 	const limit = 5_000
+	if state.Stores.Search != nil {
+		return loadAccessibleObjectSetViaSearch(ctx, state, claims, tenant, objectTypeID, limit)
+	}
+	return loadAccessibleObjectSetViaListByType(ctx, state, claims, tenant, objectTypeID, limit)
+}
+
+// loadAccessibleObjectSetViaSearch pages through SearchBackend.Search,
+// loads each hit's full ObjectInstance from ObjectStore so the
+// `EnsureObjectAccess` cascade gets the same shape as the Rust impl
+// (the search hit's snippet alone doesn't carry the marking /
+// organization_id / created_by needed by the access check).
+func loadAccessibleObjectSetViaSearch(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	tenant storage.TenantId,
+	objectTypeID uuid.UUID,
+	limit int,
+) ([]json.RawMessage, error) {
+	out := []json.RawMessage{}
+	typeID := storage.TypeId(objectTypeID.String())
+	var token *string
+	for {
+		page, err := state.Stores.Search.Search(ctx, storage.SearchQuery{
+			Tenant: tenant,
+			TypeID: &typeID,
+			Page:   storage.Page{Size: 256, Token: token},
+		}, storage.Eventual())
+		if err != nil {
+			return nil, fmt.Errorf("search backend search failed: %w", err)
+		}
+		for _, hit := range page.Items {
+			obj, err := state.Stores.Objects.Get(ctx, tenant, hit.ID, storage.Eventual())
+			if err != nil {
+				return nil, fmt.Errorf("search hit dereference failed: %w", err)
+			}
+			if obj == nil {
+				continue
+			}
+			inst := ObjectStoreToObjectInstance(*obj, claims.OrgID)
+			if inst == nil {
+				continue
+			}
+			if EnsureObjectAccess(claims, inst) != nil {
+				continue
+			}
+			out = append(out, ObjectToJSON(*inst))
+			if len(out) >= limit {
+				return out, nil
+			}
+		}
+		if page.NextToken == nil {
+			return out, nil
+		}
+		token = page.NextToken
+	}
+}
+
+func loadAccessibleObjectSetViaListByType(
+	ctx context.Context,
+	state *ontologykernel.AppState,
+	claims *authmw.Claims,
+	tenant storage.TenantId,
+	objectTypeID uuid.UUID,
+	limit int,
+) ([]json.RawMessage, error) {
 	out := []json.RawMessage{}
 	var token *string
 	for {

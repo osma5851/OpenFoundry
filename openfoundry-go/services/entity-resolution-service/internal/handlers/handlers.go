@@ -13,10 +13,15 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/entity-resolution-service/internal/repo"
 )
 
-// Handlers wires the rule and merge-strategy repos.
+// Handlers wires the fusion-plane repos.
 type Handlers struct {
 	Rules           *repo.MatchRuleRepo
 	MergeStrategies *repo.MergeStrategyRepo
+	Jobs            *repo.FusionJobRepo
+	Clusters        *repo.ClusterRepo
+	Review          *repo.ReviewQueueRepo
+	Golden          *repo.GoldenRecordRepo
+	Overview        *repo.OverviewRepo
 }
 
 // --- helpers ------------------------------------------------------------

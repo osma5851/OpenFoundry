@@ -9,11 +9,12 @@
 //
 // Backends:
 //
-//   - PgStore  — INSERT ... ON CONFLICT DO NOTHING RETURNING event_id
+//   - PgStore        — INSERT ... ON CONFLICT DO NOTHING RETURNING event_id
 //     (one round-trip, atomic).
-//   - MemStore — process-local map for unit tests.
-//
-// Cassandra LWT-backed store is deferred until cassandra-kernel lands.
+//   - CassandraStore — INSERT ... IF NOT EXISTS at LOCAL_SERIAL
+//     (LWT, ~4× a regular write but the only Cassandra primitive
+//     that gives a true atomic check-and-record).
+//   - MemStore       — process-local map for unit tests.
 //
 // # Record-before-process semantics
 //

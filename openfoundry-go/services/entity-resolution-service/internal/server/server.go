@@ -50,6 +50,8 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 	r.Route("/api/v1/fusion", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 
+		api.Get("/overview", h.GetOverview)
+
 		api.Get("/rules", h.ListRules)
 		api.Post("/rules", h.CreateRule)
 		api.Patch("/rules/{id}", h.UpdateRule)
@@ -57,6 +59,17 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Get("/merge-strategies", h.ListMergeStrategies)
 		api.Post("/merge-strategies", h.CreateMergeStrategy)
 		api.Patch("/merge-strategies/{id}", h.UpdateMergeStrategy)
+
+		api.Get("/jobs", h.ListJobs)
+		api.Post("/jobs", h.CreateJob)
+		api.Post("/jobs/{id}/run", h.RunJob)
+
+		api.Get("/clusters", h.ListClusters)
+		api.Get("/clusters/{id}", h.GetCluster)
+		api.Post("/clusters/{id}/review", h.SubmitReview)
+
+		api.Get("/review-queue", h.ListReviewQueue)
+		api.Get("/golden-records", h.ListGoldenRecords)
 	})
 
 	return r
