@@ -24,15 +24,15 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 
-	AuditServiceURL                string
-	DatasetServiceURL              string
-	OntologyServiceURL             string
-	PipelineServiceURL             string
-	AIServiceURL                   string
-	NotificationServiceURL         string
-	SearchEmbeddingProvider        string
-	NodeRuntimeCommand             string
-	ConnectorManagementServiceURL  string
+	AuditServiceURL               string
+	DatasetServiceURL             string
+	OntologyServiceURL            string
+	PipelineServiceURL            string
+	AIServiceURL                  string
+	NotificationServiceURL        string
+	SearchEmbeddingProvider       string
+	NodeRuntimeCommand            string
+	ConnectorManagementServiceURL string
 
 	CassandraContactPoints string
 	CassandraLocalDC       string
@@ -62,7 +62,7 @@ func FromEnv() (*Config, error) {
 	c.ConnectorManagementServiceURL = defaultStr(os.Getenv("CONNECTOR_MANAGEMENT_SERVICE_URL"), "http://localhost:50130")
 	c.CassandraContactPoints = os.Getenv("CASSANDRA_CONTACT_POINTS")
 	c.CassandraLocalDC = defaultStr(os.Getenv("CASSANDRA_LOCAL_DC"), "dc1")
-	c.PythonSidecarBinary = os.Getenv("PYTHON_SIDECAR_BIN")
+	c.PythonSidecarBinary = os.Getenv("PYTHON_SIDECAR_BINARY")
 	return c, nil
 }
 
