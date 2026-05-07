@@ -123,6 +123,41 @@ func listActions(w http.ResponseWriter, r *http.Request) {}
 	}
 	if routes[0].Path != "/api/v1/ontology/actions" {
 		t.Fatalf("nested helper prefix was not propagated: %#v", routes[0])
+	}
+}
+
+func TestExtractGoRoutesSeedsServerNewConstructor(t *testing.T) {
+	repo := t.TempDir()
+	root := filepath.Join(repo, "openfoundry-go", "services", "svc", "internal", "server")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code := `package server
+import (
+  "net/http"
+  "github.com/go-chi/chi/v5"
+)
+func New() *http.Server {
+  r := chi.NewRouter()
+  r.Route("/api/v1", func(api chi.Router) {
+    api.Get("/things", listThings)
+  })
+  return &http.Server{Handler: r}
+}
+func listThings(w http.ResponseWriter, r *http.Request) {}
+`
+	if err := os.WriteFile(filepath.Join(root, "server.go"), []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	routes := extractGoRoutes(repo, "svc")
+	if len(routes) != 1 {
+		t.Fatalf("expected 1 route, got %d: %#v", len(routes), routes)
+	}
+	if routes[0].Path != "/api/v1/things" {
+		t.Fatalf("New constructor route was not extracted: %#v", routes[0])
+	}
+}
+
 func TestConnectorManagementRustRouteKeyCanonicalizesAPIV1Closure(t *testing.T) {
 	r := Route{Service: "connector-management-service", Side: "rust", Method: "GET", Path: "/data-connection/catalog"}
 	if got := routeKey(r); got != "GET /api/v1/data-connection/catalog" {
