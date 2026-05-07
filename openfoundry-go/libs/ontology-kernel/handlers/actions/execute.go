@@ -1022,29 +1022,11 @@ func applyObjectWriteForAction(
 	operation string,
 	extra json.RawMessage,
 ) (domain.WritebackOutcome, error) {
-	if state.DB != nil {
-		return objects.ApplyObjectWrite(ctx, state, claims, object, expectedVersion, operation, extra)
-	}
-	targetVersion := uint64(1)
-	if expectedVersion != nil {
-		targetVersion = *expectedVersion + 1
-	}
-	tenant := domain.TenantFromClaims(claims)
-	repoObject := objects.InstanceToRepoObject(tenant, object, targetVersion, object.Properties, object.Marking)
-	outcome, err := state.Stores.Objects.Put(ctx, repoObject, expectedVersion)
-	if err != nil {
-		return domain.WritebackOutcome{}, err
-	}
-	switch outcome.Kind {
-	case storage.PutInserted:
-		return domain.WritebackOutcome{CommittedVersion: 1, Created: true}, nil
-	case storage.PutUpdated:
-		return domain.WritebackOutcome{CommittedVersion: outcome.NewVersion}, nil
-	case storage.PutVersionConflict:
-		return domain.WritebackOutcome{}, &domain.WritebackError{Kind: domain.WritebackVersionConflict, ExpectedVersion: outcome.ExpectedVersion, ActualVersion: outcome.ActualVersion}
-	default:
-		return domain.WritebackOutcome{CommittedVersion: targetVersion}, nil
-	}
+	// Keep action execution on the canonical object writeback path.
+	// Production uses the DB-backed outbox in domain.ApplyObjectWithOutbox;
+	// explicit dev/test AppStates with DB == nil are handled by that kernel
+	// helper without reintroducing handler-local ObjectStore fallbacks.
+	return objects.ApplyObjectWrite(ctx, state, claims, object, expectedVersion, operation, extra)
 }
 
 // deleteObjectViaStore mirrors `async fn delete_object_via_store`.
@@ -2018,6 +2000,72 @@ func planPreview(plan actionPlan) json.RawMessage {
 		return out
 	}
 	return json.RawMessage(`null`)
+}
+
+func targetSnapshotFromPlan(plan actionPlan) *domain.ObjectInstance {
+	switch plan.kind {
+	case planUpdateObject, planDeleteObject, planCreateLink, planModifyInterface, planDeleteInterface, planInvokeWebhook, planInvokeFunction:
+		return plan.target
+	case planCreateInterfaceLink, planDeleteInterfaceLink:
+		return plan.target
+	default:
+		return nil
+	}
+}
+
+func simulateTargetAfterPreview(ctx context.Context, state *ontologykernel.AppState, target *domain.ObjectInstance, preview json.RawMessage) (json.RawMessage, error) {
+	if target == nil {
+		return nil, nil
+	}
+	var previewObj map[string]json.RawMessage
+	if len(preview) > 0 {
+		if err := json.Unmarshal(preview, &previewObj); err != nil {
+			return nil, fmt.Errorf("invalid action preview: %w", err)
+		}
+	}
+	var kind string
+	if raw := previewObj["kind"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &kind)
+	}
+	if kind == "delete_object" || kind == "delete_interface" {
+		return nil, nil
+	}
+
+	merged := map[string]json.RawMessage{}
+	if len(target.Properties) > 0 {
+		_ = json.Unmarshal(target.Properties, &merged)
+	}
+	if rawPatch := previewObj["patch"]; len(rawPatch) > 0 && string(rawPatch) != "null" {
+		var patch map[string]json.RawMessage
+		if err := json.Unmarshal(rawPatch, &patch); err != nil {
+			return nil, fmt.Errorf("invalid simulated action branch: patch must be a JSON object")
+		}
+		for key, value := range patch {
+			merged[key] = value
+		}
+	}
+
+	defs, err := loadEffectivePropertiesForAction(ctx, state, target.ObjectTypeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load property definitions: %w", err)
+	}
+	mergedJSON, err := json.Marshal(merged)
+	if err != nil {
+		return nil, fmt.Errorf("encode simulated action branch: %w", err)
+	}
+	normalized, err := domain.ValidateObjectProperties(defs, mergedJSON)
+	if err != nil {
+		return nil, fmt.Errorf("invalid simulated action branch: %w", err)
+	}
+
+	simulated := *target
+	simulated.Properties = normalized
+	simulated.UpdatedAt = time.Now().UTC()
+	out, err := json.Marshal(simulated)
+	if err != nil {
+		return nil, fmt.Errorf("encode simulated action branch: %w", err)
+	}
+	return out, nil
 }
 
 func optionalUUIDValue(id uuid.UUID) any {
