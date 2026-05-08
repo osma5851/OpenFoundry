@@ -441,6 +441,71 @@ State counts: implemented: 61.
 | `/openfoundry/iceberg/v1/append` | POST | — | `h.AppendBatch`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:95</sub> | implemented |
 | `/v1/iceberg-clients/api-tokens` | POST | `handlers::auth::api_tokens::create_api_token`<br><sub>services/iceberg-catalog-service/src/lib.rs:112</sub> | `auth.CreateAPITokenHandler(deps.IssueAPIStore`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:110</sub> | implemented |
 | `/version` | GET | — | `versionHandler(cfg`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:55</sub> | implemented |
+Rust routes: 29. Go routes: 46.
+State counts: implemented: 46, missing: 14.
+
+| Route | Method | Rust handler | Go handler | State |
+| --- | --- | --- | --- | --- |
+| `/api/v1/iceberg-tables` | GET | `handlers::admin::list_iceberg_tables`<br><sub>services/iceberg-catalog-service/src/lib.rs:119</sub> | — | missing |
+| `/api/v1/iceberg-tables/{id}` | GET | `handlers::admin::get_iceberg_table_detail`<br><sub>services/iceberg-catalog-service/src/lib.rs:123</sub> | — | missing |
+| `/api/v1/iceberg-tables/{id}/branches` | GET | `handlers::admin::list_iceberg_table_branches`<br><sub>services/iceberg-catalog-service/src/lib.rs:135</sub> | — | missing |
+| `/api/v1/iceberg-tables/{id}/metadata` | GET | `handlers::admin::get_iceberg_table_metadata`<br><sub>services/iceberg-catalog-service/src/lib.rs:131</sub> | — | missing |
+| `/api/v1/iceberg-tables/{id}/snapshots` | GET | `handlers::admin::list_iceberg_table_snapshots`<br><sub>services/iceberg-catalog-service/src/lib.rs:127</sub> | — | missing |
+| `/api/v1/namespaces` | GET | — | `h.ListNamespaces`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:59</sub> | implemented |
+| `/api/v1/namespaces` | POST | — | `h.CreateNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:60</sub> | implemented |
+| `/api/v1/namespaces/{id}` | DELETE | — | `h.DeleteNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:63</sub> | implemented |
+| `/api/v1/namespaces/{id}` | GET | — | `h.GetNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:61</sub> | implemented |
+| `/api/v1/namespaces/{id}` | PATCH | — | `h.UpdateNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:62</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables` | GET | — | `h.ListTables`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:65</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables` | POST | — | `h.CreateTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:66</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}` | DELETE | — | `h.DropTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:70</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}` | GET | — | `h.LoadTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:68</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}` | POST | — | `h.CommitTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:69</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/metadata` | GET | — | `h.ListMetadataFiles`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:75</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/metadata/{version}` | GET | — | `h.GetMetadataFile`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:76</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs` | GET | — | `h.ListRefs`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:71</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | DELETE | — | `h.DeleteRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:74</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | GET | — | `h.GetRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:72</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | PUT | — | `h.UpsertRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:73</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/snapshots` | GET | — | `h.ListSnapshots`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:77</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/snapshots/{snapshot_id}` | GET | — | `h.GetSnapshot`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:78</sub> | implemented |
+| `/api/v1/tables/rename` | POST | — | `h.RenameTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:67</sub> | implemented |
+| `/health` | GET | `||`<br><sub>services/iceberg-catalog-service/src/lib.rs:144</sub> | — | missing |
+| `/healthz` | GET | — | `func(w`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:49</sub> | implemented |
+| `/iceberg/v1/config` | GET | `handlers::rest_catalog::config::get_config`<br><sub>services/iceberg-catalog-service/src/lib.rs:41</sub> | `h.GetConfig`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:118</sub> | implemented |
+| `/iceberg/v1/diagnose` | POST | `handlers::diagnose::run_diagnose`<br><sub>services/iceberg-catalog-service/src/lib.rs:99</sub> | `h.RunDiagnose`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:119</sub> | implemented |
+| `/iceberg/v1/namespaces` | GET | `handlers::rest_catalog::namespaces::list_namespaces`<br><sub>services/iceberg-catalog-service/src/lib.rs:46</sub> | — | missing |
+| `/iceberg/v1/namespaces` | POST | `handlers::rest_catalog::namespaces::create_namespace`<br><sub>services/iceberg-catalog-service/src/lib.rs:46</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}` | DELETE | `handlers::rest_catalog::namespaces::drop_namespace`<br><sub>services/iceberg-catalog-service/src/lib.rs:51</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}` | GET | `handlers::rest_catalog::namespaces::load_namespace`<br><sub>services/iceberg-catalog-service/src/lib.rs:51</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/markings` | GET | `handlers::markings::get_namespace_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:88</sub> | `deps.Markings.GetNamespaceMarkings`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:106</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/markings` | POST | `handlers::markings::update_namespace_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:88</sub> | `deps.Markings.UpdateNamespaceMarkings`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:107</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/properties` | GET | `handlers::rest_catalog::namespaces::get_properties`<br><sub>services/iceberg-catalog-service/src/lib.rs:56</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/properties` | POST | `handlers::rest_catalog::namespaces::update_properties`<br><sub>services/iceberg-catalog-service/src/lib.rs:56</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/tables` | GET | `handlers::rest_catalog::tables::list_tables`<br><sub>services/iceberg-catalog-service/src/lib.rs:62</sub> | `h.ListTables`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:120</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables` | POST | `handlers::rest_catalog::tables::create_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:62</sub> | `h.CreateTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:121</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | DELETE | `handlers::rest_catalog::tables::drop_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | `h.DropTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:125</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | GET | `handlers::rest_catalog::tables::load_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | `h.LoadTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:123</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | HEAD | `handlers::rest_catalog::tables::table_exists`<br><sub>services/iceberg-catalog-service/src/lib.rs:73</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | POST | `handlers::rest_catalog::tables::commit_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | `h.CommitTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:124</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/alter-schema` | POST | `handlers::rest_catalog::tables::alter_schema`<br><sub>services/iceberg-catalog-service/src/lib.rs:78</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/markings` | GET | `handlers::markings::get_table_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:93</sub> | `deps.Markings.GetTableMarkings`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:111</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/markings` | PATCH | `handlers::markings::update_table_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:93</sub> | `deps.Markings.UpdateTableMarkings`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:112</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/metadata` | GET | — | `h.ListMetadataFiles`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:130</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/metadata/{version}` | GET | — | `h.GetMetadataFile`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:131</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs` | GET | — | `h.ListRefs`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:126</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | DELETE | — | `h.DeleteRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:129</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | GET | — | `h.GetRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:127</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | PUT | — | `h.UpsertRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:128</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/snapshots` | GET | — | `h.ListSnapshots`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:132</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/snapshots/{snapshot_id}` | GET | — | `h.GetSnapshot`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:133</sub> | implemented |
+| `/iceberg/v1/oauth/tokens` | POST | `handlers::auth::oauth::issue_token`<br><sub>services/iceberg-catalog-service/src/lib.rs:108</sub> | `auth.IssueTokenHandler(deps.Bearer`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:85</sub> | implemented |
+| `/iceberg/v1/tables/rename` | POST | — | `h.RenameTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:122</sub> | implemented |
+| `/iceberg/v1/transactions/commit` | POST | `handlers::rest_catalog::transactions::multi_table_commit`<br><sub>services/iceberg-catalog-service/src/lib.rs:83</sub> | `h.MultiTableCommit`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:134</sub> | implemented |
+| `/metrics` | GET | `metrics::render_metrics`<br><sub>services/iceberg-catalog-service/src/lib.rs:145</sub> | `m.Handler(`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:54</sub> | implemented |
+| `/openfoundry/iceberg/v1/append` | POST | — | `h.AppendBatch`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:81</sub> | implemented |
+| `/v1/iceberg-clients/api-tokens` | POST | `handlers::auth::api_tokens::create_api_token`<br><sub>services/iceberg-catalog-service/src/lib.rs:112</sub> | `auth.CreateAPITokenHandler(deps.IssueAPIStore`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:96</sub> | implemented |
+| `/version` | GET | — | `versionHandler(cfg`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:53</sub> | implemented |
 
 ## federation-product-exchange-service
 
