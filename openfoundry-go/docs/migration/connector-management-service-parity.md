@@ -1,6 +1,6 @@
 # connector-management-service Rust → Go parity inventory
 
-Date: 2026-05-07
+Date: 2026-05-08
 
 Scope:
 
@@ -16,7 +16,7 @@ Generated route baseline:
 cd openfoundry-go && go run ./tools/route-audit -services connector-management-service
 ```
 
-Current route-audit result after this parity slice: 47 Rust routes and 59 Go routes, with **0 Rust routes reported as `missing`**. The audit classifies 42 routes as implemented, with remaining 501/config-gated/empty-envelope items outside the requested connector-management parity group (dev-auth, credentials/egress, sync run listing, and optional media/webhook runtime depth). The extra Go routes are existing foundation/read-update helpers (`PATCH /connections/{id}`, `GET/PATCH /data-connection/syncs/{id}`, media-set get/update/run, and the Go virtual-table primitive surface). The audit canonicalizes connector-management Rust routes mounted inside Rust's `/api/v1` closure so the comparison reflects the externally effective HTTP surface.
+Current route-audit result after this parity slice: 47 Rust routes and 59 Go routes, with **0 Rust routes reported as `missing`**. The audit classifies 48 routes as implemented; remaining 501/config-gated/empty-envelope items are outside this sync-runtime parity slice (dev-auth, optional media/webhook runtime depth, and heuristic Iceberg empty-envelope classification for the synthetic table metadata response). The extra Go routes are existing foundation/read-update helpers (`PATCH /connections/{id}`, `GET/PATCH /data-connection/syncs/{id}`, media-set get/update/run, and the Go virtual-table primitive surface). The audit canonicalizes connector-management Rust routes mounted inside Rust's `/api/v1` closure so the comparison reflects the externally effective HTTP surface.
 
 ## Status vocabulary
 
@@ -50,6 +50,30 @@ Machine-readable pending errors use this shape:
 ```
 
 
+
+
+## 2026-05-08 TestConnection adapter dispatch update
+
+This slice closes the `partial` state for the connection test route shape without touching ingestion-replication. Go now carries a shared `ConnectionTestResult` adapter contract and `h.TestConnection` dispatches to a registered adapter when it implements `TestConnection`. Adapter successes and failures both return HTTP 200 with the Rust-compatible `success`, `message`, `latency_ms`, and `details` envelope, and the stored connection status is updated to `connected` or `error`. The production binary wires the Kafka adapter, whose catalog-backed and live broker probes were already ported; connectors without a registered test adapter now produce an explicit failed test result instead of the previous optimistic stub.
+
+## 2026-05-08 background workers update
+
+This slice ports the Rust background-worker primitives for connector-management-service:
+
+- Auto-registration now has a Go `RunOnce`/`RunLoop` worker with Clock/Store interfaces, per-connection `config.auto_registration` parsing, update-detection skip semantics, in-memory last-run status, and the same service-level opt-in gate as Rust: `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS > 0`.
+- Update detection now exposes Rust-compatible `first_seen`, `unknown`, `unchanged`, and `changed` outcomes for discovered-source signatures and records the latest signature after successful auto-registration upserts.
+- The legacy sync scheduler has a Clock/Store-backed `RunOnce`/`RunLoop`; the SQL store is intentionally a no-op because the local sync runtime remains disabled pending the ingestion-replication runtime slice. It is gated by `OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS > 0` and is disabled by default.
+- Agent registry resolution now mirrors Rust precedence and validation: inline `agent_url`, then `agent_id` lookup, online status enforcement, and stale-heartbeat rejection using the configured stale-after duration.
+
+## 2026-05-08 encrypted credentials + vending update
+
+This slice ports the Rust credential storage/vending semantics that sit behind the existing route surface:
+
+- `source_credentials` list/upsert now encrypts plaintext values with the Rust-compatible AES-256-GCM envelope: byte `1` version prefix, 12-byte random nonce, then ciphertext+tag. The key derivation remains compatible with Rust: base64 `CREDENTIAL_ENCRYPTION_KEY` must decode to 32 bytes; otherwise the dev fallback is SHA-256 over `openfoundry/credential-encryption/v1\0` plus `JWT_SECRET`.
+- Go includes decrypt support and golden tests for the Rust blob layout, malformed-blob errors, unsupported-version errors, and dev-key derivation.
+- Iceberg `LoadTable` config now applies the credential-vending helper used by Rust: `expires-at-ms` is always emitted; S3 static/passthrough entries include region, endpoint, path-style, access key, secret key, and session token; Azure/ADLS/OneLake emits account name plus either container-scoped service SAS, account SAS, or a static SAS fallback; GCS emits static OAuth token/project entries.
+- Azure SAS generation mirrors Rust's canonical strings, signed version `2022-11-02`, HMAC-SHA256 signing, and conservative percent encoding; tests pin account-SAS and service-SAS golden query strings.
+
 ## 2026-05-07 parity close update
 
 This slice replaced the remaining connector-management route-parity placeholders for the requested groups:
@@ -58,10 +82,10 @@ This slice replaced the remaining connector-management route-parity placeholders
 - `test-connection` now returns the Rust-style success/message/latency/details response and updates connection status; it does not yet dispatch into every Rust connector runtime.
 - `/api/v1/data-connection/streaming-sources` serves the static streaming-source contract catalog.
 - `/api/v1/webhooks/{id}/invoke` loads webhook definitions from connection config, forwards the HTTP call, and returns `status`, `response`, and `output_parameters`.
-- `/iceberg/v1/config`, namespaces, tables, and table loading are backed by zero-copy registrations. Load-table returns upstream `metadata_location` when registration metadata carries it, otherwise a Foundry-vended synthetic metadata/config response.
+- `/iceberg/v1/config`, namespaces, tables, and table loading are backed by zero-copy registrations. Load-table returns upstream `metadata_location` when registration metadata carries it, otherwise a Foundry-vended synthetic metadata/config response; in both cases the config map now includes Rust-compatible credential-vending entries.
 - Handler tests now cover registration, auto-registration, connection test, webhook invoke, streaming/catalog golden surfaces, and the Iceberg REST catalog group.
 
-Remaining non-parity gaps are connector-runtime depth rather than HTTP route availability: credentials/egress/dev-auth remain pending, sync run listing remains pending, and full per-adapter discovery/query/Arrow IPC fidelity remains future work.
+Remaining non-parity gaps are connector-runtime depth rather than HTTP route availability: dev-auth remains pending, optional media/webhook runtime depth depends on configured services, and full per-adapter discovery/query/Arrow IPC fidelity remains future work.
 
 ## 2026-05-07 CMA-0 update — adapter registry + 4-capability interface
 
@@ -108,17 +132,19 @@ Remaining non-parity gaps are connector-runtime depth rather than HTTP route ava
 | POST | `/api/v1/data-connection/sources` | `handlers::connections::create_connection` | `/api/v1/data-connection/sources` | `h.CreateConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | GET | `/api/v1/data-connection/sources/{id}` | `handlers::connections::get_connection` | `/api/v1/data-connection/sources/{id}` | `h.GetConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | DELETE | `/api/v1/data-connection/sources/{id}` | `handlers::connections::delete_connection` | `/api/v1/data-connection/sources/{id}` | `h.DeleteConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
-| POST | `/api/v1/data-connection/sources/{id}/test-connection` | `handlers::connections::test_connection` | `/api/v1/data-connection/sources/{id}/test-connection` | `h.TestConnection` | partial | `connections`; connector adapter modules | connector adapter tests, real-broker/minio/e2e tests |
+| POST | `/api/v1/data-connection/sources/{id}/test-connection` | `handlers::connections::test_connection` | `/api/v1/data-connection/sources/{id}/test-connection` | `h.TestConnection` | implemented (adapter-backed for registered test adapters; unsupported connectors return Rust-compatible failed test result) | `connections`; connector adapter modules | connector adapter tests, real-broker/minio/e2e tests |
 | GET | `/api/v1/data-connection/sources/{id}/capabilities` | `handlers::catalog::get_connection_capabilities` | `/api/v1/data-connection/sources/{id}/capabilities` | `h.GetConnectionCapabilities` | implemented | `connections`, connector catalog | connector/domain capability tests |
 
 ### credentials vending/storage
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::list_credentials` | `/api/v1/data-connection/sources/{id}/credentials` | `h.ListCredentials` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | `src/credential_crypto.rs`, `src/handlers/credentials_vending.rs` |
-| POST | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::set_credential` | `/api/v1/data-connection/sources/{id}/credentials` | `h.SetCredential` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | `src/credential_crypto.rs`, `src/handlers/credentials_vending.rs` |
+| GET | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::list_credentials` | `/api/v1/data-connection/sources/{id}/credentials` | `h.ListCredentials` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | Go golden tests mirror `src/credential_crypto.rs` |
+| POST | `/api/v1/data-connection/sources/{id}/credentials` | `handlers::data_connection::set_credential` | `/api/v1/data-connection/sources/{id}/credentials` | `h.SetCredential` | implemented | `source_credentials`; `20260430120000_data_connection_mvp.sql` | AES-GCM envelope/key-derivation golden tests; vending golden tests mirror `src/handlers/credentials_vending.rs` |
 
 ### egress policies/network boundary
+
+Go now carries Rust-parity source policy binding handlers over `source_policy_bindings` plus a dedicated `internal/domain/egress` helper that mirrors Rust `EgressPolicy::from_state_and_config`, `validate_url`, host allow/block matching, insecure-HTTP blocking, and private-network classification. As in Rust, this helper is a validation gate only: DNS resolution, socket-level controls, connector-agent proxying, and policy catalog ownership remain external network-boundary/runtime responsibilities rather than connector-management enforcement.
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -132,7 +158,7 @@ Remaining non-parity gaps are connector-runtime depth rather than HTTP route ava
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | GET | `/api/v1/data-connection/sources/{id}/syncs` | `handlers::data_connection::list_syncs` | `/api/v1/data-connection/sources/{id}/syncs` | `h.ListSyncJobs` | partial | `batch_sync_defs`; `20260430120000_data_connection_mvp.sql` | dataset versioning/sync tests |
 | POST | `/api/v1/data-connection/syncs` | `handlers::data_connection::create_sync` | `/api/v1/data-connection/syncs` | `h.CreateSyncJob` | partial | `batch_sync_defs`; `20260430120000_data_connection_mvp.sql` | dataset versioning/sync tests |
-| POST | `/api/v1/data-connection/syncs/{id}/run` | `handlers::data_connection::run_sync` | `/api/v1/data-connection/syncs/{id}/run` | `h.RunSyncJob` | runtime-pending | `batch_sync_defs`, `sync_runs`; `20260430120000_data_connection_mvp.sql`, `20260430140000_sync_runs_ingest_job_id.sql`, `20260501100000_sync_runs_dataset_version.sql` | `src/domain/dataset_versioning.rs`, `src/ingestion_bridge.rs`, connector integration tests |
+| POST | `/api/v1/data-connection/syncs/{id}/run` | `handlers::data_connection::run_sync` | `/api/v1/data-connection/syncs/{id}/run` | `h.RunSyncJob` | implemented (port-backed dispatch) | `batch_sync_defs`, `sync_runs`; `20260430120000_data_connection_mvp.sql`, `20260430140000_sync_runs_ingest_job_id.sql`, `20260501100000_sync_runs_dataset_version.sql` | `src/domain/dataset_versioning.rs`, `src/ingestion_bridge.rs`, connector integration tests |
 | GET | `/api/v1/data-connection/syncs/{id}/runs` | `handlers::data_connection::list_runs` | `/api/v1/data-connection/syncs/{id}/runs` | `h.ListRuns` | implemented (local run ledger) | `sync_runs`; `20260430120000_data_connection_mvp.sql` | dataset versioning/sync tests |
 
 ### media-set syncs
@@ -185,7 +211,7 @@ Remaining non-parity gaps are connector-runtime depth rather than HTTP route ava
 | POST | `/api/v1/connections` | `handlers::connections::create_connection` | `/api/v1/connections` | `h.CreateConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | GET | `/api/v1/connections/{id}` | `handlers::connections::get_connection` | `/api/v1/connections/{id}` | `h.GetConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | DELETE | `/api/v1/connections/{id}` | `handlers::connections::delete_connection` | `/api/v1/connections/{id}` | `h.DeleteConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
-| POST | `/api/v1/connections/{id}/test` | `handlers::connections::test_connection` | `/api/v1/connections/{id}/test` | `h.TestConnection` | partial | `connections`, connector adapters | connector adapter tests |
+| POST | `/api/v1/connections/{id}/test` | `handlers::connections::test_connection` | `/api/v1/connections/{id}/test` | `h.TestConnection` | implemented (adapter-backed for registered test adapters; unsupported connectors return Rust-compatible failed test result) | `connections`, connector adapters | connector adapter tests |
 
 ### webhooks
 
@@ -224,10 +250,10 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 
 | Worker | Rust implementation | Trigger/config | Go parity state | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- |
-| Auto registration scheduler | `domain::auto_registration::run/tick` | `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS` > 0 | routes mounted; worker pending | `virtual_table_sources_link`, `auto_register_runs`; `20260504000121_auto_registration.sql` | auto-registration tests |
-| Sync scheduler/runtime | `domain::scheduler::run_scheduler`, `domain::sync_engine::run_due_jobs` | service/runtime config | route surface partial/runtime-pending | `batch_sync_defs`, `sync_runs` | sync/dataset versioning tests |
-| Update detection | `domain::update_detection` and virtual-table counterpart | virtual table polling settings | pending | `update_detection_polls`, `virtual_tables`; `20260504000122_update_detection.sql` | update-detection tests |
-| Agent registry resolution | `domain::agent_registry` | connector agent config | pending | `connector_agents`; `20260425153000_enterprise_connectivity.sql` | enterprise connector tests |
+| Auto registration scheduler | `domain::auto_registration::run/tick` | `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS` > 0 | Clock/Store `RunOnce`/`RunLoop` worker ported; status reads in-memory last run | `virtual_table_sources_link`, `auto_register_runs`; `20260504000121_auto_registration.sql` | auto-registration tests |
+| Sync scheduler/runtime | `domain::scheduler::run_scheduler`, `domain::sync_engine::run_due_jobs` | opt-in `OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS` > 0 | Clock/Store scheduler shim ported; store remains no-op while runtime is disabled | `batch_sync_defs`, `sync_runs` | sync/dataset versioning tests |
+| Update detection | `domain::update_detection` and virtual-table counterpart | per-registration/auto-registration settings | registration signature evaluator ported for auto-registration; virtual-table polling remains pending | `update_detection_polls`, `virtual_tables`; `20260504000122_update_detection.sql` | update-detection tests |
+| Agent registry resolution | `domain::agent_registry` | connector agent config | resolver ported with inline URL, registry lookup, online/stale validation | `connector_agents`; `20260425153000_enterprise_connectivity.sql` | enterprise connector tests |
 
 ### conformance/tests
 
@@ -237,7 +263,7 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 | HTTP handler contracts | `src/handlers/*.rs` | router tests cover mounted routes, auth-required behavior, and dev-auth env gating | Credentials, egress, sync run listing, full connector adapter dispatch, and dev-auth behavior remain. |
 | Persistence migrations | Rust migrations | Go migrations mirror filenames | Need repo methods for all carried tables and outbox writes. |
 | Connector behavior | `src/connectors/*.rs`, `src/virtual_table/connectors/*.rs` | contract fixture test and mounted pending endpoints | Need adapter-level unit/integration parity. |
-| Runtime dispatch | `ingestion_bridge`, `dataset_versioning`, media-set runtime | Go DB-only sync run plus media-set HTTP runtime | Need ingestion-replication dispatch, dataset version recording, run listing/status semantics. |
+| Runtime dispatch | `ingestion_bridge`, `dataset_versioning`, media-set runtime | Go port-backed sync run dispatch plus media-set HTTP runtime | `run_sync` now materializes deterministic ingestion payloads, dispatches to ingestion-replication through a testable port, persists terminal run state, and records dataset versions/content hashes; remaining work is broader connector adapter coverage and production auth propagation for remote service calls. |
 | Background workers | `domain/*` schedulers | none found | Need worker ports, tests, config gates. |
 
 ## Prioritized PR/slices to close migration
@@ -245,8 +271,8 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 1. **Done — catalog/contracts/streaming-source slice**: Rust static catalog/contracts plus streaming source contract response shapes and tests are present.
 2. **Partial — connection test/capabilities slice**: capability matrix and a non-dispatching `test_connection` response are present; per-connector runtime dispatch remains.
 3. **Credential storage/vending slice**: port encrypted `source_credentials` CRUD and vended credential helpers, including key derivation/encryption compatibility tests.
-4. **Egress policy slice**: port source policy binding handlers and domain URL/allowlist/private-network validation; keep network-boundary ownership external.
-5. **Sync runtime slice**: complete `run_sync` parity by dispatching to ingestion-replication, materializing payloads, recording dataset versions/content hashes, and implementing `GET /syncs/{id}/runs`.
+4. **Done — egress policy slice**: source policy binding handlers and Rust-compatible URL/allowlist/private-network validation are ported; network-boundary enforcement remains external by design.
+5. **Done — sync runtime slice**: `run_sync` dispatches to ingestion-replication through a port, materializes payloads/content hashes, records dataset versions when available, persists terminal `sync_runs`, and `GET /syncs/{id}/runs` returns the run ledger.
 6. **Media-set parity slice**: reconcile Rust-only create/list vs Go extended run/get/update API, then wire runtime config and filter/classification parity tests.
 7. **Done/partial — virtual registrations slice**: list/discover/bulk/preview/delete/query/Arrow endpoints and repo methods over `connection_registrations` are present; full adapter-backed query and audit-table writes remain.
 8. **Auto-registration/update-detection workers slice**: replace status/update 501s plus scheduler/update-detection workers and config gates.

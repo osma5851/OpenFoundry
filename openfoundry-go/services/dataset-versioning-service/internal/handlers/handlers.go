@@ -100,6 +100,7 @@ type Handlers struct {
 	Repo       Store
 	BackingFS  storageabstraction.BackingFS
 	PresignTTL time.Duration
+	AuditSink  func(context.Context, AuditEvent)
 	// Resolver computes effective dataset markings by walking lineage
 	// upstream. When nil, marking endpoints fall back to the direct rows
 	// returned by Repo.ListDatasetMarkings — keeps tests light and lets
@@ -115,6 +116,12 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeJSONErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+const dependencyUnavailableStatus = 503
+
+func writeDependencyUnavailable(w http.ResponseWriter, code string, msg string) {
+	writeJSON(w, dependencyUnavailableStatus, map[string]string{"code": code, "error": msg})
 }
 
 func datasetIDParam(r *http.Request) string {
@@ -713,7 +720,7 @@ func (h *Handlers) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.BackingFS == nil {
-		writeJSONErr(w, http.StatusServiceUnavailable, "backing filesystem not configured")
+		writeDependencyUnavailable(w, "backing_filesystem_unavailable", "backing filesystem not configured")
 		return
 	}
 	ttl := h.PresignTTL
@@ -726,6 +733,14 @@ func (h *Handlers) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusInternalServerError, "failed to presign file")
 		return
 	}
+	claims, _ := authmw.FromContext(r.Context())
+	actor := "anonymous"
+	if claims != nil {
+		actor = claims.Sub.String()
+	}
+	h.emitAudit(r.Context(), AuditEvent{Actor: actor, Action: "files.download", DatasetRID: dataset.ID.String(), Details: map[string]any{
+		"file_id": file.ID.String(), "logical_path": file.LogicalPath, "size_bytes": file.SizeBytes, "physical_uri": file.PhysicalURI, "presign_ttl_seconds": uint64(ttl / time.Second), "expires_at": signed.ExpiresAt,
+	}})
 	w.Header().Set("Location", signed.URL)
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	w.WriteHeader(http.StatusFound)
@@ -751,6 +766,10 @@ func (h *Handlers) CreateFileUploadURL(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "logical_path required")
 		return
 	}
+	if !safeObjectKey(logical) {
+		writeJSONErr(w, http.StatusBadRequest, "invalid logical_path")
+		return
+	}
 	status, found, err := h.Repo.GetTransactionStatus(r.Context(), dataset.ID, txnID)
 	if err != nil {
 		slog.Error("get transaction status", slog.String("error", err.Error()))
@@ -766,7 +785,7 @@ func (h *Handlers) CreateFileUploadURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.BackingFS == nil {
-		writeJSONErr(w, http.StatusServiceUnavailable, "backing filesystem not configured")
+		writeDependencyUnavailable(w, "backing_filesystem_unavailable", "backing filesystem not configured")
 		return
 	}
 	ttl := h.PresignTTL
@@ -788,5 +807,13 @@ func (h *Handlers) CreateFileUploadURL(w http.ResponseWriter, r *http.Request) {
 	if method == "" || method == "GET" {
 		method = "PUT"
 	}
+	claims, _ := authmw.FromContext(r.Context())
+	actor := "anonymous"
+	if claims != nil {
+		actor = claims.Sub.String()
+	}
+	h.emitAudit(r.Context(), AuditEvent{Actor: actor, Action: "files.upload_url", DatasetRID: dataset.ID.String(), Details: map[string]any{
+		"transaction_id": txnID.String(), "logical_path": physical.RelativePath, "content_type": body.ContentType, "sha256": body.SHA256, "physical_uri": physical.URI(), "presign_ttl_seconds": uint64(ttl / time.Second), "expires_at": signed.ExpiresAt,
+	}})
 	writeJSON(w, http.StatusOK, models.CreateDatasetFileUploadURLResponse{URL: signed.URL, PhysicalURI: physical.URI(), ExpiresAt: signed.ExpiresAt, Method: method})
 }

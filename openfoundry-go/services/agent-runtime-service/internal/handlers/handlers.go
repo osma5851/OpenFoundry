@@ -2,7 +2,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -13,14 +15,17 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/copilot"
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
 	aimodels "github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/models"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/repo"
 )
 
 type Handlers struct {
-	Repo     *repo.Repo
-	Runtime  llm.Runtime
-	Provider *aimodels.LlmProvider
+	Repo                 *repo.Repo
+	Runtime              llm.Runtime
+	Provider             *aimodels.LlmProvider
+	AllowFakeLLMProvider bool
+	PurposeCheckpoint    *authmw.PurposeCheckpointClient
 }
 
 func (h *Handlers) completionRuntime() llm.Runtime {
@@ -30,12 +35,17 @@ func (h *Handlers) completionRuntime() llm.Runtime {
 	return llm.HTTPRuntime{}
 }
 
-func (h *Handlers) completionProvider() *aimodels.LlmProvider {
+var errFakeLLMProviderDisabled = errors.New("configuration error: no LLM provider configured and ALLOW_FAKE_LLM_PROVIDER is not true")
+
+func (h *Handlers) completionProvider() (*aimodels.LlmProvider, error) {
 	if h.Provider != nil {
-		return h.Provider
+		return h.Provider, nil
+	}
+	if !h.AllowFakeLLMProvider {
+		return nil, errFakeLLMProviderDisabled
 	}
 	provider := fakeAgentRuntimeProvider()
-	return &provider
+	return &provider, nil
 }
 
 func fakeAgentRuntimeProvider() aimodels.LlmProvider {
@@ -50,6 +60,56 @@ func fakeAgentRuntimeProvider() aimodels.LlmProvider {
 		MaxOutputTokens: 1024,
 		RouteRules:      aimodels.DefaultProviderRoutingRules(),
 	}
+}
+
+func (h *Handlers) enforceChatPurposeCheckpoint(ctx context.Context, justification *string, requirePrivateNetwork bool, provider *aimodels.LlmProvider) error {
+	if h.PurposeCheckpoint == nil || !requirePrivateNetwork {
+		return nil
+	}
+	providerName := ""
+	networkScope := ""
+	if provider != nil {
+		providerName = provider.Name
+		networkScope = provider.RouteRules.NetworkScope
+	}
+	return h.PurposeCheckpoint.Enforce(ctx, authmw.PurposeCheckpointRequest{
+		InteractionType:         "ai_chat_completion",
+		ActorID:                 actorIDFromContext(ctx),
+		PurposeJustification:    justification,
+		RequestedPrivateNetwork: requirePrivateNetwork,
+		Tags:                    []string{"ai", "chat", "private-network"},
+		Evidence: mustJSONRaw(map[string]any{
+			"service":       "agent-runtime-service",
+			"provider_name": providerName,
+			"network_scope": networkScope,
+		}),
+	})
+}
+
+func actorIDFromContext(ctx context.Context) *uuid.UUID {
+	claims, ok := authmw.FromContext(ctx)
+	if !ok || claims == nil {
+		return nil
+	}
+	id := claims.Sub
+	return &id
+}
+
+func mustJSONRaw(value any) json.RawMessage {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return data
+}
+
+func writePurposeCheckpointError(w http.ResponseWriter, err error) {
+	var denied *authmw.PurposeCheckpointDeniedError
+	if errors.As(err, &denied) {
+		writeError(w, http.StatusForbidden, denied.Error())
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error())
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -209,9 +269,9 @@ func (h *Handlers) SubmitHumanApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateChatCompletion exposes an OpenAI-compatible chat completion route
-// backed by libs/ai-kernel-go's provider runtime. In local/test wiring, a
-// fake provider can be supplied (or the default fake provider is used);
-// production wiring can inject any real LlmProvider + HTTPRuntime.
+// backed by libs/ai-kernel-go's provider runtime. Production wiring must
+// inject a real LlmProvider unless ALLOW_FAKE_LLM_PROVIDER explicitly enables
+// the local/test fake provider fallback.
 func (h *Handlers) CreateChatCompletion(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Model    string `json:"model"`
@@ -219,8 +279,10 @@ func (h *Handlers) CreateChatCompletion(w http.ResponseWriter, r *http.Request) 
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
-		Temperature *float32 `json:"temperature"`
-		MaxTokens   *int32   `json:"max_tokens"`
+		Temperature           *float32 `json:"temperature"`
+		MaxTokens             *int32   `json:"max_tokens"`
+		PurposeJustification  *string  `json:"purpose_justification"`
+		RequirePrivateNetwork bool     `json:"require_private_network"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -249,7 +311,11 @@ func (h *Handlers) CreateChatCompletion(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "chat completion requires a user message")
 		return
 	}
-	provider := h.completionProvider()
+	provider, err := h.completionProvider()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	model := provider.ModelName
 	if strings.TrimSpace(body.Model) != "" {
 		model = body.Model
@@ -261,6 +327,10 @@ func (h *Handlers) CreateChatCompletion(w http.ResponseWriter, r *http.Request) 
 	maxTokens := aimodels.DefaultMaxTokens
 	if body.MaxTokens != nil {
 		maxTokens = *body.MaxTokens
+	}
+	if err := h.enforceChatPurposeCheckpoint(r.Context(), body.PurposeJustification, body.RequirePrivateNetwork, provider); err != nil {
+		writePurposeCheckpointError(w, err)
+		return
 	}
 	completion, err := h.completionRuntime().CompleteText(r.Context(), llm.CompletionRequest{
 		Provider: provider, SystemPrompt: systemPrompt, UserPrompt: userPrompt,
@@ -293,7 +363,11 @@ func (h *Handlers) AskCopilot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := h.completionProvider()
+	provider, err := h.completionProvider()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	citedKnowledge := []aimodels.KnowledgeSearchResult{}
 	draft := copilot.Assist(
 		body.Question,

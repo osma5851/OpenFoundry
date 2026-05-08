@@ -19,6 +19,7 @@ import (
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/runners"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/iceberg"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
 )
@@ -61,6 +62,57 @@ type ExecutionPorts struct {
 	Parallelism  int
 }
 
+// ConfigGatedOutputCommitter routes Foundry Iceberg outputs to the ADR-0041
+// catalog adapter and fails with stable configuration errors when the catalog
+// URL is unset or when the URL is present but the transaction-store adapter is
+// not wired. Non-Iceberg outputs continue to use the metadata committer.
+type ConfigGatedOutputCommitter struct {
+	Metadata          executor.OutputCommitter
+	Iceberg           executor.OutputCommitter
+	CatalogConfigured bool
+}
+
+func (c ConfigGatedOutputCommitter) Commit(ctx context.Context, tx executor.OutputTransaction) error {
+	if iceberg.Handles(tx.DatasetRID) {
+		if c.Iceberg == nil {
+			if c.CatalogConfigured {
+				return errors.New("foundry_iceberg_catalog_adapter_not_configured: FOUNDRY_ICEBERG_CATALOG_URL is set but the Iceberg transaction store is not wired")
+			}
+			return errors.New("foundry_iceberg_catalog_not_configured: set FOUNDRY_ICEBERG_CATALOG_URL to commit Iceberg outputs")
+		}
+		return c.Iceberg.Commit(ctx, tx)
+	}
+	if c.Metadata == nil {
+		return nil
+	}
+	return c.Metadata.Commit(ctx, tx)
+}
+
+// ConfigGatedTransactionManager mirrors ConfigGatedOutputCommitter for aborts
+// so failed/cancelled Iceberg nodes roll back through the catalog adapter when
+// it is wired and otherwise surface the same stable config error.
+type ConfigGatedTransactionManager struct {
+	Metadata          executor.TransactionManager
+	Iceberg           executor.TransactionManager
+	CatalogConfigured bool
+}
+
+func (m ConfigGatedTransactionManager) Abort(ctx context.Context, tx executor.OutputTransaction) error {
+	if iceberg.Handles(tx.DatasetRID) {
+		if m.Iceberg == nil {
+			if m.CatalogConfigured {
+				return errors.New("foundry_iceberg_catalog_adapter_not_configured: FOUNDRY_ICEBERG_CATALOG_URL is set but the Iceberg transaction store is not wired")
+			}
+			return errors.New("foundry_iceberg_catalog_not_configured: set FOUNDRY_ICEBERG_CATALOG_URL to abort Iceberg outputs")
+		}
+		return m.Iceberg.Abort(ctx, tx)
+	}
+	if m.Metadata == nil {
+		return nil
+	}
+	return m.Metadata.Abort(ctx, tx)
+}
+
 type executionSlot struct{ ports ExecutionPorts }
 
 var executionPorts atomic.Value // stores *executionSlot
@@ -80,6 +132,19 @@ func currentExecutionPorts() (ExecutionPorts, bool) {
 		return ExecutionPorts{}, false
 	}
 	return slot.ports, true
+}
+
+func requireExecutionPorts(w http.ResponseWriter, detail string) (ExecutionPorts, bool) {
+	ports, ok := currentExecutionPorts()
+	if !ok {
+		writeExecutionPortsUnavailable(w, detail)
+		return ExecutionPorts{}, false
+	}
+	return ports, true
+}
+
+func writeExecutionPortsUnavailable(w http.ResponseWriter, detail string) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution_ports_not_configured", "detail": detail})
 }
 
 func registerExecutionCancel(id uuid.UUID, cancel context.CancelFunc) func() {
@@ -143,9 +208,8 @@ type executePipelineResponse struct {
 // state, runs the DAG executor and returns the observable Rust-compatible build
 // terminal envelope.
 func ExecutePipeline(w http.ResponseWriter, r *http.Request) {
-	ports, ok := currentExecutionPorts()
+	ports, ok := requireExecutionPorts(w, "ExecutePipeline requires executor ports")
 	if !ok {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution_ports_not_configured", "detail": "ExecutePipeline requires executor ports"})
 		return
 	}
 	var body executePipelineRequest
@@ -177,9 +241,12 @@ func ExecutePipeline(w http.ResponseWriter, r *http.Request) {
 // pipeline_run, convert the pipeline DAG into an executor.Plan, run it, persist
 // terminal status through hooks, and return the created run envelope.
 func TriggerPipelineRun(w http.ResponseWriter, r *http.Request) {
-	ports, ok := currentExecutionPorts()
-	if !ok || ports.Runs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution_ports_not_configured", "detail": "TriggerPipelineRun requires pipeline run repository and executor ports"})
+	ports, ok := requireExecutionPorts(w, "TriggerPipelineRun requires pipeline run repository and executor ports")
+	if !ok {
+		return
+	}
+	if ports.Runs == nil {
+		writeExecutionPortsUnavailable(w, "TriggerPipelineRun requires pipeline run repository and executor ports")
 		return
 	}
 	pipelineID, err := pipelineIDFromRequest(r)
@@ -369,7 +436,10 @@ func (r runtimeNodeRunner) Run(ctx context.Context, node executor.NodeContext) (
 	}
 	transformType := metadataString(node.Node.Metadata, "transform_type")
 	payload := metadataRaw(node.Node.Metadata, "logic_payload")
-	if transformType == "python" && r.Python != nil {
+	if transformType == "python" {
+		if r.Python == nil {
+			return executor.NodeResult{}, errors.New("python_sidecar_not_configured: set PYTHON_SIDECAR_BINARY to execute Python transforms")
+		}
 		return r.runPython(ctx, node, payload)
 	}
 	if r.JobRunner == nil {
@@ -383,12 +453,21 @@ func (r runtimeNodeRunner) Run(ctx context.Context, node executor.NodeContext) (
 }
 
 func (r runtimeNodeRunner) runPython(ctx context.Context, node executor.NodeContext, payload json.RawMessage) (executor.NodeResult, error) {
+	// Go -> sidecar contract for pipeline nodes:
+	//   - source: logic_payload.source or logic_payload.code (required by runtime executor)
+	//   - config_json: logic_payload.config when present, otherwise the complete logic_payload object
+	//   - prepared_inputs_json: logic_payload.prepared_inputs or [] until dataset materialization is wired
+	//   - input_dataset_ids/output_dataset_id: copied from node metadata/outputs
+	//   - timeout_seconds: logic_payload.timeout_seconds or the sidecar executor default
 	var cfg map[string]json.RawMessage
 	if len(payload) > 0 {
 		_ = json.Unmarshal(payload, &cfg)
 	}
 	source := firstString(cfg, "source", "code")
 	configJSON := cfg["config"]
+	if len(configJSON) == 0 && len(payload) > 0 {
+		configJSON = payload
+	}
 	preparedInputsJSON := cfg["prepared_inputs"]
 	if len(preparedInputsJSON) == 0 {
 		preparedInputsJSON = []byte("[]")
@@ -398,7 +477,7 @@ func (r runtimeNodeRunner) runPython(ctx context.Context, node executor.NodeCont
 	if outputID == "" && len(node.Node.Outputs) > 0 {
 		outputID = node.Node.Outputs[0].DatasetRID
 	}
-	result, err := r.Python.ExecutePythonTransform(ctx, runtimepkg.TransformRequest{Source: source, ConfigJSON: configJSON, PreparedInputsJSON: preparedInputsJSON, InputDatasetIDs: inputIDs, OutputDatasetID: outputID})
+	result, err := r.Python.ExecutePythonTransform(ctx, runtimepkg.TransformRequest{Source: source, ConfigJSON: configJSON, PreparedInputsJSON: preparedInputsJSON, InputDatasetIDs: inputIDs, OutputDatasetID: outputID, TimeoutSeconds: firstUint32(cfg, "timeout_seconds")})
 	if err != nil {
 		return executor.NodeResult{}, err
 	}
@@ -562,4 +641,14 @@ func firstString(cfg map[string]json.RawMessage, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstUint32(cfg map[string]json.RawMessage, keys ...string) uint32 {
+	for _, key := range keys {
+		var n uint32
+		if len(cfg[key]) > 0 && json.Unmarshal(cfg[key], &n) == nil {
+			return n
+		}
+	}
+	return 0
 }

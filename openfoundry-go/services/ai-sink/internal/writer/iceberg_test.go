@@ -2,11 +2,12 @@ package writer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -56,6 +57,12 @@ func TestIcebergWriterAppendBuildsRustCompatibleAIBatches(t *testing.T) {
 	if got := catalog.seen[0].PartitionTransform; got != "day(at)" {
 		t.Fatalf("partition = %q", got)
 	}
+	if got := catalog.seen[0].SortOrder; got != "at ASC" {
+		t.Fatalf("sort order = %q", got)
+	}
+	if !reflect.DeepEqual(catalog.seen[0].Schema, aiSchema()) {
+		t.Fatalf("schema = %#v, want %#v", catalog.seen[0].Schema, aiSchema())
+	}
 	if len(table.batches) != 1 || len(table.batches[0].Rows) != 1 {
 		t.Fatalf("batches = %#v", table.batches)
 	}
@@ -63,8 +70,8 @@ func TestIcebergWriterAppendBuildsRustCompatibleAIBatches(t *testing.T) {
 	if row["kind"] != "response" || row["run_id"] != runID.String() || row["trace_id"] != traceID {
 		t.Fatalf("row = %#v", row)
 	}
-	if got := table.batches[0].Spec.Schema[7]; got != (FieldSpec{ID: 8, Name: "payload", Type: "string", Required: true}) {
-		t.Fatalf("schema[7] = %#v", got)
+	if !reflect.DeepEqual(table.batches[0].Spec.Schema, aiSchema()) {
+		t.Fatalf("batch schema = %#v, want %#v", table.batches[0].Spec.Schema, aiSchema())
 	}
 }
 
@@ -152,50 +159,13 @@ func TestHTTPTableWriterAdapterAIContract(t *testing.T) {
 			t.Fatalf("Content-Type = %q", got)
 		}
 
-		var batch AppendBatch
-		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
-			t.Fatalf("decode request: %v", err)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
 		}
-		wantSpec := TableSpec{
-			Catalog:            aiCatalog,
-			CatalogURL:         catalogURL,
-			Warehouse:          "warehouse-1",
-			Namespace:          "of_ai",
-			Table:              envelope.TableResponses,
-			PartitionTransform: "day(at)",
-			SortOrder:          "at ASC",
-			Schema:             aiSchema(),
-		}
-		if !reflect.DeepEqual(batch.Spec, wantSpec) {
-			t.Fatalf("spec = %#v, want %#v", batch.Spec, wantSpec)
-		}
-		if len(batch.Rows) != 1 {
-			t.Fatalf("rows = %#v", batch.Rows)
-		}
-		row := batch.Rows[0]
-		if row["event_id"] != "00000000-0000-7000-8000-000000000001" {
-			t.Fatalf("event_id = %#v", row["event_id"])
-		}
-		if row["at"] != float64(1700000000000000) {
-			t.Fatalf("at = %#v", row["at"])
-		}
-		if row["kind"] != "response" {
-			t.Fatalf("kind = %#v", row["kind"])
-		}
-		if row["run_id"] != runID.String() {
-			t.Fatalf("run_id = %#v", row["run_id"])
-		}
-		if row["trace_id"] != traceID {
-			t.Fatalf("trace_id = %#v", row["trace_id"])
-		}
-		if row["producer"] != "agent-runtime-service" {
-			t.Fatalf("producer = %#v", row["producer"])
-		}
-		if row["schema_version"] != float64(1) {
-			t.Fatalf("schema_version = %#v", row["schema_version"])
-		}
-		if row["payload"] != `{"tokens":42}` {
-			t.Fatalf("payload = %#v", row["payload"])
+		wantPayload := `{"spec":{"catalog":"lakekeeper","catalog_url":"http://lakekeeper:8181","warehouse":"warehouse-1","namespace":"of_ai","table":"responses","partition_transform":"day(at)","sort_order":"at ASC","schema":[{"id":1,"name":"event_id","type":"uuid","required":true},{"id":2,"name":"at","type":"timestamptz","required":true},{"id":3,"name":"kind","type":"string","required":true},{"id":4,"name":"run_id","type":"uuid","required":false},{"id":5,"name":"trace_id","type":"string","required":false},{"id":6,"name":"producer","type":"string","required":true},{"id":7,"name":"schema_version","type":"uint32","required":true},{"id":8,"name":"payload","type":"string","required":true}]},"rows":[{"at":1700000000000000,"event_id":"00000000-0000-7000-8000-000000000001","kind":"response","payload":"{\"tokens\":42}","producer":"agent-runtime-service","run_id":"00000000-0000-7000-8000-000000000123","schema_version":1,"trace_id":"trace-1"}]}`
+		if string(body) != wantPayload {
+			t.Fatalf("request payload mismatch\nwant: %s\n got: %s", wantPayload, body)
 		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -205,6 +175,19 @@ func TestHTTPTableWriterAdapterAIContract(t *testing.T) {
 	batch := map[string][]envelope.AiEventEnvelope{
 		envelope.TableResponses: {{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1700000000000000, Kind: envelope.KindResponse, RunID: &runID, TraceID: &traceID, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"tokens":42}`)}},
 	}
+	if err := writer.Append(context.Background(), batch); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterAIAcceptsAny2xx(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPartialContent)
+	}))
+	defer server.Close()
+
+	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_ai")
+	batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, At: 1, Kind: envelope.KindPrompt, Producer: "producer", SchemaVersion: 1, Payload: []byte(`{}`)}}}
 	if err := writer.Append(context.Background(), batch); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
@@ -228,6 +211,7 @@ func TestHTTPTableWriterAdapterAIErrors(t *testing.T) {
 					t.Fatalf("path = %s", r.URL.Path)
 				}
 				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte("adapter detail"))
 			}))
 			defer server.Close()
 
@@ -236,6 +220,9 @@ func TestHTTPTableWriterAdapterAIErrors(t *testing.T) {
 			err := writer.Append(context.Background(), batch)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("Append() error = %v, want %v", err, tc.want)
+			}
+			if !strings.Contains(err.Error(), "adapter detail") {
+				t.Fatalf("Append() error = %v, want table-writer detail", err)
 			}
 		})
 	}

@@ -16,8 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
+	cmruntime "github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/runtime"
 )
 
 func TestConnectionJSONShape(t *testing.T) {
@@ -74,6 +76,82 @@ func TestListConnectionsRequiresAuth(t *testing.T) {
 	assert.Equal(t, 401, rec.Code)
 }
 
+type testConnectionAdapter struct {
+	result adapters.ConnectionTestResult
+	err    error
+}
+
+func (a testConnectionAdapter) TestConnection(_ context.Context, _ json.RawMessage) (adapters.ConnectionTestResult, error) {
+	return a.result, a.err
+}
+func (a testConnectionAdapter) DiscoverSources(context.Context, *models.Connection, string) ([]adapters.Source, error) {
+	return nil, adapters.ErrNotImplemented
+}
+func (a testConnectionAdapter) QueryVirtualTable(context.Context, *models.Connection, *adapters.Query, string) (*adapters.Result, error) {
+	return nil, adapters.ErrNotImplemented
+}
+func (a testConnectionAdapter) StreamArrow(context.Context, *models.Connection, *adapters.Query, string) (adapters.ArrowStream, error) {
+	return adapters.EmptyArrowStream{}, adapters.ErrNotImplemented
+}
+func (a testConnectionAdapter) BuildIngestSpec(context.Context, *models.Connection, *adapters.Source) (*adapters.IngestSpec, error) {
+	return nil, adapters.ErrNotImplemented
+}
+
+func TestTestConnectionUsesAdapterResultAndUpdatesStatus(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "kafka"
+	store.connections[0].Status = "disconnected"
+	registry := adapters.NewRegistry()
+	registry.MustRegister("kafka", adapters.SingletonFactory(testConnectionAdapter{result: adapters.ConnectionTestResult{
+		Success:   true,
+		Message:   "validated kafka catalog with 1 topic(s)",
+		LatencyMS: 7,
+		Details:   json.RawMessage(`{"mode":"catalog_backed","topic_count":1}`),
+	}}))
+	h := &handlers.Handlers{Repo: store, AdapterRegistry: registry}
+	req := httptest.NewRequest(http.MethodPost, "/connections/"+store.connections[0].ID.String()+"/test", nil)
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), &authmw.Claims{Sub: owner}))
+	rec := httptest.NewRecorder()
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", store.connections[0].ID.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	h.TestConnection(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "connected", store.connections[0].Status)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, true, body["success"])
+	assert.Equal(t, "validated kafka catalog with 1 topic(s)", body["message"])
+	assert.Equal(t, float64(7), body["latency_ms"])
+	assert.Equal(t, map[string]any{"mode": "catalog_backed", "topic_count": float64(1)}, body["details"])
+}
+
+func TestTestConnectionAdapterErrorMarksConnectionError(t *testing.T) {
+	t.Parallel()
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "kafka"
+	registry := adapters.NewRegistry()
+	registry.MustRegister("kafka", adapters.SingletonFactory(testConnectionAdapter{err: assert.AnError}))
+	h := &handlers.Handlers{Repo: store, AdapterRegistry: registry}
+	req := httptest.NewRequest(http.MethodPost, "/connections/"+store.connections[0].ID.String()+"/test", nil)
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), &authmw.Claims{Sub: owner}))
+	rec := httptest.NewRecorder()
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", store.connections[0].ID.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	h.TestConnection(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "error", store.connections[0].Status)
+	assert.Contains(t, rec.Body.String(), assert.AnError.Error())
+}
+
 type fakeStore struct {
 	connections   []models.Connection
 	syncJobs      map[uuid.UUID][]models.SyncJob
@@ -82,11 +160,12 @@ type fakeStore struct {
 	links         map[string]models.VirtualTableSourceLink
 	vtables       map[string]models.VirtualTable
 	registrations map[uuid.UUID][]models.ConnectionRegistration
+	policies      map[uuid.UUID][]models.SourcePolicyBindingResponse
 }
 
 func newFakeStore(owner uuid.UUID) *fakeStore {
 	conn := models.Connection{ID: uuid.New(), Name: "pg", ConnectorType: "postgresql", Config: json.RawMessage(`{}`), Status: "connected", OwnerID: owner, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
-	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}}
+	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}, policies: map[uuid.UUID][]models.SourcePolicyBindingResponse{}}
 }
 
 func (f *fakeStore) ListConnections(_ context.Context, ownerID *uuid.UUID) ([]models.Connection, error) {
@@ -112,8 +191,22 @@ func (f *fakeStore) CreateConnection(_ context.Context, body *models.CreateConne
 	c := models.Connection{ID: uuid.New(), Name: body.Name, ConnectorType: body.ConnectorType, Config: body.Config, OwnerID: ownerID}
 	return &c, nil
 }
-func (f *fakeStore) UpdateConnection(_ context.Context, id uuid.UUID, _ *models.UpdateConnectionRequest) (*models.Connection, error) {
-	return f.GetConnection(context.Background(), id)
+func (f *fakeStore) UpdateConnection(_ context.Context, id uuid.UUID, body *models.UpdateConnectionRequest) (*models.Connection, error) {
+	for i := range f.connections {
+		if f.connections[i].ID == id {
+			if body.Status != nil {
+				f.connections[i].Status = *body.Status
+			}
+			if body.Name != nil {
+				f.connections[i].Name = *body.Name
+			}
+			if body.Config != nil {
+				f.connections[i].Config = body.Config
+			}
+			return &f.connections[i], nil
+		}
+	}
+	return nil, nil
 }
 func (f *fakeStore) DeleteConnection(_ context.Context, id uuid.UUID) (bool, error) {
 	c, _ := f.GetConnection(context.Background(), id)
@@ -185,6 +278,47 @@ func (f *fakeStore) RunSyncJob(_ context.Context, id uuid.UUID, ownerID uuid.UUI
 func (f *fakeStore) ListSyncRuns(_ context.Context, syncID uuid.UUID, _ uuid.UUID) ([]models.SyncRun, error) {
 	return f.runs[syncID], nil
 }
+func (f *fakeStore) CompleteSyncRun(_ context.Context, runID uuid.UUID, _ uuid.UUID, status string, bytesWritten int64, filesWritten int64, errMsg *string, ingestJobID *string, datasetVersionID *uuid.UUID, contentHash *string) (*models.SyncRun, error) {
+	for syncID, runs := range f.runs {
+		for i := range runs {
+			if runs[i].ID == runID {
+				now := time.Now().UTC()
+				runs[i].Status = status
+				runs[i].FinishedAt = &now
+				runs[i].BytesWritten = bytesWritten
+				runs[i].FilesWritten = filesWritten
+				runs[i].Error = errMsg
+				runs[i].IngestJobID = ingestJobID
+				runs[i].DatasetVersionID = datasetVersionID
+				runs[i].ContentHash = contentHash
+				f.runs[syncID] = runs
+				return &runs[i], nil
+			}
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) PreviousDatasetVersionForHash(_ context.Context, syncDefID uuid.UUID, contentHash string) (*uuid.UUID, error) {
+	for _, run := range f.runs[syncDefID] {
+		if run.ContentHash != nil && *run.ContentHash == contentHash && run.DatasetVersionID != nil {
+			return run.DatasetVersionID, nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) RecordDatasetVersionOnRun(_ context.Context, runID uuid.UUID, datasetVersionID uuid.UUID, contentHash string) error {
+	for syncID, runs := range f.runs {
+		for i := range runs {
+			if runs[i].ID == runID {
+				runs[i].DatasetVersionID = &datasetVersionID
+				runs[i].ContentHash = &contentHash
+				f.runs[syncID] = runs
+				return nil
+			}
+		}
+	}
+	return nil
+}
 func (f *fakeStore) ListCredentials(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.CredentialResponse, error) {
 	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
 		return []models.CredentialResponse{}, nil
@@ -201,17 +335,36 @@ func (f *fakeStore) ListSourcePolicies(_ context.Context, sourceID uuid.UUID, ow
 	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
 		return []models.SourcePolicyBindingResponse{}, nil
 	}
-	return []models.SourcePolicyBindingResponse{}, nil
+	return append([]models.SourcePolicyBindingResponse(nil), f.policies[sourceID]...), nil
 }
 func (f *fakeStore) AttachPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, policyID uuid.UUID, kind string) (*models.SourcePolicyBindingResponse, error) {
 	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
 		return nil, nil
 	}
-	return &models.SourcePolicyBindingResponse{SourceID: sourceID, PolicyID: policyID, Kind: kind}, nil
+	binding := models.SourcePolicyBindingResponse{SourceID: sourceID, PolicyID: policyID, Kind: kind}
+	items := f.policies[sourceID]
+	for i := range items {
+		if items[i].PolicyID == policyID {
+			items[i] = binding
+			f.policies[sourceID] = items
+			return &items[i], nil
+		}
+	}
+	f.policies[sourceID] = append(items, binding)
+	return &binding, nil
 }
-func (f *fakeStore) DetachPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, _ uuid.UUID) (bool, error) {
-	c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID)
-	return c != nil, nil
+func (f *fakeStore) DetachPolicy(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID, policyID uuid.UUID) (bool, error) {
+	if c, _ := f.GetConnectionForOwner(context.Background(), sourceID, ownerID); c == nil {
+		return false, nil
+	}
+	items := f.policies[sourceID]
+	for i := range items {
+		if items[i].PolicyID == policyID {
+			f.policies[sourceID] = append(items[:i], items[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (f *fakeStore) EnableVirtualTableSource(_ context.Context, sourceRID string, body *models.EnableVirtualTableSourceRequest) (*models.VirtualTableSourceLink, error) {
@@ -423,6 +576,66 @@ func withRouteParam(req *http.Request, key, val string) *http.Request {
 	}
 	rctx.URLParams.Add(key, val)
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+func TestSourcePolicyBindingHandlersMatchRustContract(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	sourceID := store.connections[0].ID
+	policyID := uuid.New()
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/egress-policies", `{"policy_id":"`+policyID.String()+`"}`, owner), "id", sourceID.String())
+	rec := httptest.NewRecorder()
+	h.AttachPolicy(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var attached models.SourcePolicyBindingResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &attached))
+	require.Equal(t, sourceID, attached.SourceID)
+	require.Equal(t, policyID, attached.PolicyID)
+	require.Equal(t, "direct", attached.Kind)
+
+	req = withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/egress-policies", `{"policy_id":"`+policyID.String()+`","kind":"agent_proxy"}`, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.AttachPolicy(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, store.policies[sourceID], 1)
+	require.Equal(t, "agent_proxy", store.policies[sourceID][0].Kind)
+
+	req = withRouteParam(authedReq(http.MethodGet, "/sources/"+sourceID.String()+"/egress-policies", ``, owner), "id", sourceID.String())
+	rec = httptest.NewRecorder()
+	h.ListSourcePolicies(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var listed []models.SourcePolicyBindingResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+	require.Len(t, listed, 1)
+	require.Equal(t, "agent_proxy", listed[0].Kind)
+
+	req = withRouteParam(withRouteParam(authedReq(http.MethodDelete, "/sources/"+sourceID.String()+"/egress-policies/"+policyID.String(), ``, owner), "source_id", sourceID.String()), "policy_id", policyID.String())
+	rec = httptest.NewRecorder()
+	h.DetachPolicy(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Empty(t, store.policies[sourceID])
+}
+
+func TestAttachPolicyRejectsEdgeCases(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	sourceID := store.connections[0].ID
+	h := &handlers.Handlers{Repo: store}
+
+	for name, body := range map[string]string{
+		"nil policy id":     `{"policy_id":"00000000-0000-0000-0000-000000000000"}`,
+		"unsupported kind":  `{"policy_id":"` + uuid.NewString() + `","kind":"bucket_endpoint"}`,
+		"malformed payload": `{`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := withRouteParam(authedReq(http.MethodPost, "/sources/"+sourceID.String()+"/egress-policies", body, owner), "id", sourceID.String())
+			rec := httptest.NewRecorder()
+			h.AttachPolicy(rec, req)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
 }
 
 func TestCreateListGetUpdateSyncJobAndRun(t *testing.T) {
@@ -874,4 +1087,111 @@ func TestConnectionWebhookAndIcebergHandlers(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.IcebergLoadTable(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+type fakeIngestionPort struct {
+	requests []cmruntime.IngestionRequest
+	result   cmruntime.IngestionResult
+	err      error
+}
+
+func (f *fakeIngestionPort) Dispatch(_ context.Context, req cmruntime.IngestionRequest) (*cmruntime.IngestionResult, error) {
+	f.requests = append(f.requests, req)
+	if f.err != nil {
+		return nil, f.err
+	}
+	result := f.result
+	if result.IngestJobID == "" {
+		result.IngestJobID = "ingest-" + req.RunID.String()
+	}
+	if result.Payload == nil {
+		result.Payload = req.Materialized
+	}
+	if result.BytesWritten == 0 {
+		result.BytesWritten = int64(len(result.Payload))
+	}
+	if result.FilesWritten == 0 {
+		result.FilesWritten = 1
+	}
+	return &result, nil
+}
+
+type fakeDatasetVersioningPort struct {
+	requests []cmruntime.DatasetVersionRequest
+	id       uuid.UUID
+	err      error
+}
+
+func (f *fakeDatasetVersioningPort) Register(_ context.Context, req cmruntime.DatasetVersionRequest) (*cmruntime.DatasetVersionResult, error) {
+	f.requests = append(f.requests, req)
+	if f.err != nil {
+		return nil, f.err
+	}
+	id := f.id
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+	return &cmruntime.DatasetVersionResult{DatasetVersionID: id}, nil
+}
+
+func TestRunSyncJobDispatchesIngestionAndRegistersDatasetVersion(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	job, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: store.connections[0].ID, OutputDatasetID: uuid.New()}, owner)
+	require.NoError(t, err)
+	ingestion := &fakeIngestionPort{result: cmruntime.IngestionResult{RowsWritten: 7, Payload: []byte(`{"rows":7}`)}}
+	versionID := uuid.New()
+	versions := &fakeDatasetVersioningPort{id: versionID}
+	h := &handlers.Handlers{Repo: store, IngestionRuntime: ingestion, DatasetVersioning: versions}
+
+	req := withRouteParam(authedReq(http.MethodPost, "/syncs/"+job.ID.String()+"/run", "", owner), "sync_id", job.ID.String())
+	rec := httptest.NewRecorder()
+	h.RunSyncJob(rec, req)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	var run models.SyncRun
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &run))
+	assert.Equal(t, "succeeded", run.Status)
+	assert.NotNil(t, run.FinishedAt)
+	assert.NotNil(t, run.IngestJobID)
+	assert.Equal(t, versionID, *run.DatasetVersionID)
+	assert.NotEmpty(t, *run.ContentHash)
+	require.Len(t, ingestion.requests, 1)
+	assert.Equal(t, job.ID, ingestion.requests[0].SyncDefID)
+	require.Len(t, versions.requests, 1)
+	assert.Equal(t, job.OutputDatasetID, versions.requests[0].OutputDatasetID)
+	assert.Equal(t, *run.ContentHash, versions.requests[0].ContentHash)
+
+	req = withRouteParam(authedReq(http.MethodGet, "/syncs/"+job.ID.String()+"/runs", "", owner), "sync_id", job.ID.String())
+	rec = httptest.NewRecorder()
+	h.ListRuns(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var runs []models.SyncRun
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runs))
+	require.Len(t, runs, 1)
+	assert.Equal(t, "succeeded", runs[0].Status)
+}
+
+func TestRunSyncJobReusesDatasetVersionForSameContentHash(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	job, err := store.CreateSyncJob(context.Background(), &models.CreateSyncJobRequest{SourceID: store.connections[0].ID, OutputDatasetID: uuid.New()}, owner)
+	require.NoError(t, err)
+	payload := []byte(`stable-payload`)
+	ingestion := &fakeIngestionPort{result: cmruntime.IngestionResult{Payload: payload, BytesWritten: int64(len(payload)), FilesWritten: 1}}
+	versions := &fakeDatasetVersioningPort{id: uuid.New()}
+	h := &handlers.Handlers{Repo: store, IngestionRuntime: ingestion, DatasetVersioning: versions}
+
+	for range 2 {
+		req := withRouteParam(authedReq(http.MethodPost, "/syncs/"+job.ID.String()+"/run", "", owner), "sync_id", job.ID.String())
+		rec := httptest.NewRecorder()
+		h.RunSyncJob(rec, req)
+		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+	require.Len(t, versions.requests, 1, "second run should reuse the recorded dataset version for the same content hash")
+	runs := store.runs[job.ID]
+	require.Len(t, runs, 2)
+	require.NotNil(t, runs[0].DatasetVersionID)
+	require.NotNil(t, runs[1].DatasetVersionID)
+	assert.Equal(t, *runs[0].DatasetVersionID, *runs[1].DatasetVersionID)
 }

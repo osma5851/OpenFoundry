@@ -26,6 +26,14 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/repo"
 )
 
+func assertJSONErrorCode(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, want, body["code"])
+	require.NotEmpty(t, body["error"])
+}
+
 func TestDatasetJSONShape(t *testing.T) {
 	t.Parallel()
 	d := models.Dataset{
@@ -220,6 +228,7 @@ type fakeStore struct {
 	quality             map[uuid.UUID]*models.DatasetQualityResponse
 	health              map[string]*models.DatasetHealth
 	lint                map[uuid.UUID]*models.DatasetLintSummary
+	fallbacks           map[uuid.UUID][]string
 	versionConflict     bool
 	branchConflict      bool
 	permissionConflict  bool
@@ -231,7 +240,7 @@ func newFakeStore(owner uuid.UUID) *fakeStore {
 		StoragePath: "s3://bucket/sales", OwnerID: owner, CurrentVersion: 1,
 		Tags: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
-	return &fakeStore{datasets: []models.Dataset{ds}, versions: map[uuid.UUID][]models.DatasetVersion{}, branches: map[uuid.UUID][]models.DatasetBranch{}, files: map[uuid.UUID][]models.DatasetFile{}, transactions: map[uuid.UUID]string{}, runtimeTransactions: map[uuid.UUID]models.RuntimeTransaction{}, markings: map[uuid.UUID][]models.EffectiveMarking{}, permissions: map[uuid.UUID][]models.DatasetPermissionEdge{}, lineageLinks: map[uuid.UUID][]models.DatasetLineageLink{}, fileIndex: map[uuid.UUID][]models.DatasetFileIndexEntry{}, views: map[uuid.UUID][]models.DatasetView{}, schemas: map[uuid.UUID]models.SchemaResponse{}, quality: map[uuid.UUID]*models.DatasetQualityResponse{}, health: map[string]*models.DatasetHealth{}, lint: map[uuid.UUID]*models.DatasetLintSummary{}}
+	return &fakeStore{datasets: []models.Dataset{ds}, versions: map[uuid.UUID][]models.DatasetVersion{}, branches: map[uuid.UUID][]models.DatasetBranch{}, files: map[uuid.UUID][]models.DatasetFile{}, transactions: map[uuid.UUID]string{}, runtimeTransactions: map[uuid.UUID]models.RuntimeTransaction{}, markings: map[uuid.UUID][]models.EffectiveMarking{}, permissions: map[uuid.UUID][]models.DatasetPermissionEdge{}, lineageLinks: map[uuid.UUID][]models.DatasetLineageLink{}, fileIndex: map[uuid.UUID][]models.DatasetFileIndexEntry{}, views: map[uuid.UUID][]models.DatasetView{}, schemas: map[uuid.UUID]models.SchemaResponse{}, quality: map[uuid.UUID]*models.DatasetQualityResponse{}, health: map[string]*models.DatasetHealth{}, lint: map[uuid.UUID]*models.DatasetLintSummary{}, fallbacks: map[uuid.UUID][]string{}}
 }
 
 func (f *fakeStore) ListDatasets(_ context.Context, ownerID *uuid.UUID, _ int) ([]models.Dataset, error) {
@@ -662,11 +671,27 @@ func (f *fakeStore) ReparentRuntimeBranch(_ context.Context, datasetID uuid.UUID
 	return b, nil
 }
 func (f *fakeStore) BranchAncestry(_ context.Context, datasetID uuid.UUID, branch string) ([]models.RuntimeBranch, error) {
-	b, err := f.GetRuntimeBranch(context.Background(), datasetID, branch)
+	current, err := f.GetRuntimeBranch(context.Background(), datasetID, branch)
 	if err != nil {
 		return nil, err
 	}
-	return []models.RuntimeBranch{*b}, nil
+	chain := []models.RuntimeBranch{}
+	for current != nil {
+		chain = append(chain, *current)
+		if current.ParentBranchID == nil {
+			break
+		}
+		var next *models.RuntimeBranch
+		for _, b := range f.branches[datasetID] {
+			if b.ID == *current.ParentBranchID {
+				copy := models.RuntimeBranch{ID: b.ID, RID: b.RID, DatasetID: b.DatasetID, DatasetRID: b.DatasetRID, Name: b.Name, ParentBranchID: b.ParentBranchID, HeadTransactionID: b.HeadTransactionID, CreatedFromTransactionID: b.CreatedFromTransactionID, LastActivityAt: b.LastActivityAt, Labels: b.Labels, FallbackChain: b.FallbackChain, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+				next = &copy
+				break
+			}
+		}
+		current = next
+	}
+	return chain, nil
 }
 func (f *fakeStore) UpdateBranchRetention(_ context.Context, datasetID uuid.UUID, branch string, _ models.RetentionPolicy, _ *int32) (*models.RuntimeBranch, error) {
 	return f.GetRuntimeBranch(context.Background(), datasetID, branch)
@@ -683,10 +708,17 @@ func (f *fakeStore) CompareBranches(_ context.Context, _ uuid.UUID, base string,
 func (f *fakeStore) RollbackBranch(_ context.Context, _ uuid.UUID, branch string, _ *models.RollbackBody, _ uuid.UUID) (map[string]any, error) {
 	return map[string]any{"view": map[string]any{"branch": branch}}, nil
 }
-func (f *fakeStore) ListFallbacks(_ context.Context, _ uuid.UUID) ([]models.RuntimeFallbackEntry, error) {
-	return []models.RuntimeFallbackEntry{}, nil
+func (f *fakeStore) ListFallbacks(_ context.Context, branchID uuid.UUID) ([]models.RuntimeFallbackEntry, error) {
+	out := []models.RuntimeFallbackEntry{}
+	for i, name := range f.fallbacks[branchID] {
+		out = append(out, models.RuntimeFallbackEntry{Position: int32(i), FallbackBranchName: name})
+	}
+	return out, nil
 }
-func (f *fakeStore) ReplaceFallbacks(_ context.Context, _ uuid.UUID, _ []string) error { return nil }
+func (f *fakeStore) ReplaceFallbacks(_ context.Context, branchID uuid.UUID, names []string) error {
+	f.fallbacks[branchID] = append([]string{}, names...)
+	return nil
+}
 
 func (f *fakeStore) StartTransaction(_ context.Context, datasetID uuid.UUID, branchID uuid.UUID, branchName string, txType models.TransactionType, summary string, providence models.JSONValue, startedBy uuid.UUID) (*models.RuntimeTransaction, error) {
 	for _, tx := range f.runtimeTransactions {
@@ -1058,7 +1090,10 @@ func TestListAndDownloadFiles(t *testing.T) {
 		CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(), Status: "active",
 	}}
 	fs := storageabstraction.NewLocalBackingFS("http://files.local", "", []byte("test-secret"))
-	h := &handlers.Handlers{Repo: store, BackingFS: fs, PresignTTL: time.Minute}
+	audits := []handlers.AuditEvent{}
+	h := &handlers.Handlers{Repo: store, BackingFS: fs, PresignTTL: time.Minute, AuditSink: func(_ context.Context, event handlers.AuditEvent) {
+		audits = append(audits, event)
+	}}
 
 	req := datasetReq("GET", store, owner, "")
 	req.URL.RawQuery = "prefix=daily/"
@@ -1076,6 +1111,11 @@ func TestListAndDownloadFiles(t *testing.T) {
 	require.Equal(t, http.StatusFound, rec.Code)
 	assert.Contains(t, rec.Header().Get("Location"), "http://files.local/v1/_internal/local-fs/datasets/sales/daily/part-000.parquet")
 	assert.Equal(t, "private, max-age=0, must-revalidate", rec.Header().Get("Cache-Control"))
+	require.Len(t, audits, 1)
+	assert.Equal(t, "files.download", audits[0].Action)
+	assert.Equal(t, datasetID.String(), audits[0].DatasetRID)
+	assert.Equal(t, "daily/part-000.parquet", audits[0].Details["logical_path"])
+	assert.Equal(t, uint64(60), audits[0].Details["presign_ttl_seconds"])
 }
 
 func TestDownloadDeletedFileReturnsGone(t *testing.T) {
@@ -1093,12 +1133,30 @@ func TestDownloadDeletedFileReturnsGone(t *testing.T) {
 	assert.Equal(t, http.StatusGone, rec.Code)
 }
 
+func TestDownloadFileReportsMachineReadableUnavailableWithoutBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	fileID := uuid.New()
+	store.files[datasetID] = []models.DatasetFile{{ID: fileID, DatasetID: datasetID, TransactionID: uuid.New(), LogicalPath: "daily.csv", PhysicalURI: "local:///daily.csv", Status: "active"}}
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(datasetReq("GET", store, owner, ""), "file_id", fileID.String())
+	rec := httptest.NewRecorder()
+	h.DownloadFile(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "backing_filesystem_unavailable")
+}
+
 func TestCreateFileUploadURL(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
 	txnID := uuid.New()
 	store.transactions[txnID] = "OPEN"
-	h := &handlers.Handlers{Repo: store, BackingFS: storageabstraction.NewLocalBackingFS("http://files.local", "dataset-root", []byte("secret")), PresignTTL: time.Minute}
+	audits := []handlers.AuditEvent{}
+	h := &handlers.Handlers{Repo: store, BackingFS: storageabstraction.NewLocalBackingFS("http://files.local", "dataset-root", []byte("secret")), PresignTTL: time.Minute, AuditSink: func(_ context.Context, event handlers.AuditEvent) {
+		audits = append(audits, event)
+	}}
 
 	req := withRouteParam(datasetReq("POST", store, owner, `{"logical_path":"incoming/file.csv"}`), "txn", txnID.String())
 	rec := httptest.NewRecorder()
@@ -1108,6 +1166,9 @@ func TestCreateFileUploadURL(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "PUT", out.Method)
 	assert.Equal(t, "local:///dataset-root/transactions/"+txnID.String()+"/incoming/file.csv", out.PhysicalURI)
+	require.Len(t, audits, 1)
+	assert.Equal(t, "files.upload_url", audits[0].Action)
+	assert.Equal(t, "transactions/"+txnID.String()+"/incoming/file.csv", audits[0].Details["logical_path"])
 }
 
 func TestCreateFileUploadURLRejectsClosedTransaction(t *testing.T) {
@@ -1121,6 +1182,34 @@ func TestCreateFileUploadURLRejectsClosedTransaction(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.CreateFileUploadURL(rec, req)
 	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestCreateFileUploadURLRejectsUnsafeLogicalPath(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	txnID := uuid.New()
+	store.transactions[txnID] = "OPEN"
+	h := &handlers.Handlers{Repo: store, BackingFS: storageabstraction.NewLocalBackingFS("http://files.local", "", []byte("secret"))}
+
+	req := withRouteParam(datasetReq("POST", store, owner, `{"logical_path":"../secret.csv"}`), "txn", txnID.String())
+	rec := httptest.NewRecorder()
+	h.CreateFileUploadURL(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid logical_path")
+}
+
+func TestCreateFileUploadURLReportsMachineReadableUnavailableWithoutBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	txnID := uuid.New()
+	store.transactions[txnID] = "OPEN"
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(datasetReq("POST", store, owner, `{"logical_path":"incoming/file.csv"}`), "txn", txnID.String())
+	rec := httptest.NewRecorder()
+	h.CreateFileUploadURL(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "backing_filesystem_unavailable")
 }
 
 func catalogReq(method string, store *fakeStore, claims *authmw.Claims, body string) *http.Request {
@@ -1317,6 +1406,12 @@ func TestAdvancedBranchLifecycleHandlers(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.BranchAncestry(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+	var ancestry []map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ancestry))
+	require.Len(t, ancestry, 2)
+	require.Equal(t, "feature", ancestry[0]["name"])
+	require.Equal(t, "master", ancestry[1]["name"])
+	require.Equal(t, true, ancestry[1]["is_root"])
 
 	req = withRouteParam(catalogReq(http.MethodGet, store, claims, ""), "branch", "feature")
 	rec = httptest.NewRecorder()
@@ -1357,6 +1452,9 @@ func TestAdvancedBranchRetentionCompareFallbacksAndValidation(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.PutFallbacks(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+	var fallbacks []models.RuntimeFallbackEntry
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fallbacks))
+	require.Equal(t, []models.RuntimeFallbackEntry{{Position: 0, FallbackBranchName: "master"}}, fallbacks)
 
 	req = withRouteParam(catalogReq(http.MethodGet, store, claims, ""), "branch", "feature")
 	rec = httptest.NewRecorder()
@@ -1515,6 +1613,16 @@ func TestLocalPresignProxyRoundTripAndSafety(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestLocalPresignProxyReportsMachineReadableUnavailableWithoutLocalBackingFS(t *testing.T) {
+	h := &handlers.Handlers{Repo: newFakeStore(uuid.New())}
+	req := httptest.NewRequest(http.MethodGet, "/v1/_internal/local-fs/datasets/file.csv?expires=1&sig=bad", nil)
+	req = withRouteParam(req, "*", "datasets/file.csv")
+	rec := httptest.NewRecorder()
+	h.LocalPresignProxy(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "local_backing_filesystem_unavailable")
+}
+
 func TestStorageDetailsAndMultipartUpload(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -1558,6 +1666,30 @@ func TestStorageDetailsAndMultipartUpload(t *testing.T) {
 	got, err := fs.ReadLocalObject("base/datasets/" + datasetID.String() + "/incoming/data.csv")
 	require.NoError(t, err)
 	require.Equal(t, "a,b\n1,2\n", string(got))
+}
+
+func TestStorageDetailsReportsMachineReadableUnavailableWithoutBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	claims := &authmw.Claims{Sub: owner, Permissions: []string{"dataset.write"}}
+	req := catalogReq(http.MethodGet, store, claims, "")
+	rec := httptest.NewRecorder()
+	h.StorageDetails(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "backing_filesystem_unavailable")
+}
+
+func TestUploadDataReportsMachineReadableUnavailableWithoutLocalBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	claims := &authmw.Claims{Sub: owner, Permissions: []string{"dataset.write"}}
+	req := catalogReq(http.MethodPost, store, claims, "")
+	rec := httptest.NewRecorder()
+	h.UploadData(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "local_backing_filesystem_unavailable")
 }
 
 func TestQualityRuleLifecycleHandlers(t *testing.T) {
@@ -1740,4 +1872,77 @@ func TestListTransactionsBeforeValidation(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ListTransactions(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestConcurrentTransactionsRejectedOnSameBranch(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	store.branches[datasetID] = []models.DatasetBranch{{ID: uuid.New(), DatasetID: datasetID, Name: "master", Labels: []byte(`{}`), FallbackChain: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), LastActivityAt: time.Now().UTC()}}
+	h := &handlers.Handlers{Repo: store}
+
+	rec := httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"APPEND"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"UPDATE"}`))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "BRANCH_HAS_OPEN_TRANSACTION")
+}
+
+func TestAbortTransactionIsIdempotentButCommitIsOpenOnly(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	store.branches[datasetID] = []models.DatasetBranch{{ID: uuid.New(), DatasetID: datasetID, Name: "master", Labels: []byte(`{}`), FallbackChain: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), LastActivityAt: time.Now().UTC()}}
+	h := &handlers.Handlers{Repo: store}
+
+	rec := httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"DELETE"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var opened models.RuntimeTransaction
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&opened))
+
+	rec = httptest.NewRecorder()
+	h.AbortTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", &opened.ID, ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.AbortTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", &opened.ID, ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.CommitTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", &opened.ID, ""))
+	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestBranchOpenTransactionBlocksNewTransactionButAllowsChildBranch(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	masterID := uuid.New()
+	store.branches[datasetID] = []models.DatasetBranch{{ID: masterID, DatasetID: datasetID, Name: "master", Labels: []byte(`{}`), FallbackChain: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), LastActivityAt: time.Now().UTC()}}
+	h := &handlers.Handlers{Repo: store}
+
+	rec := httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"SNAPSHOT"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"APPEND"}`))
+	require.Equal(t, http.StatusConflict, rec.Code)
+
+	parent := "master"
+	body := `{"name":"child","parent_branch":"` + parent + `"}`
+	rec = httptest.NewRecorder()
+	req := authedReq(http.MethodPost, "/v1/datasets/ri.foundry.main.dataset."+datasetID.String()+"/branches", body, owner)
+	req = withRouteParam(req, "rid", "ri.foundry.main.dataset."+datasetID.String())
+	h.CreateBranch(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var child models.RuntimeBranch
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&child))
+	require.Equal(t, "child", child.Name)
+	require.NotNil(t, child.ParentBranchID)
+	require.Equal(t, masterID, *child.ParentBranchID)
 }

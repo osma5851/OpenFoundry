@@ -2,8 +2,8 @@ package writer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -54,14 +54,20 @@ func TestIcebergWriterAppendBuildsRustCompatibleAuditBatch(t *testing.T) {
 	if got := catalog.seen[0].PartitionTransform; got != "day(at)" {
 		t.Fatalf("partition = %q", got)
 	}
+	if got := catalog.seen[0].SortOrder; got != "at ASC" {
+		t.Fatalf("sort order = %q", got)
+	}
+	if !reflect.DeepEqual(catalog.seen[0].Schema, auditSchema()) {
+		t.Fatalf("schema = %#v, want %#v", catalog.seen[0].Schema, auditSchema())
+	}
 	if len(table.batches) != 1 || len(table.batches[0].Rows) != 1 {
 		t.Fatalf("batches = %#v", table.batches)
 	}
 	if got := table.batches[0].Rows[0]["payload"]; got != `{"ok":true}` {
 		t.Fatalf("payload = %#v", got)
 	}
-	if got := table.batches[0].Spec.Schema[0]; got != (FieldSpec{ID: 1, Name: "event_id", Type: "uuid", Required: true}) {
-		t.Fatalf("schema[0] = %#v", got)
+	if !reflect.DeepEqual(table.batches[0].Spec.Schema, auditSchema()) {
+		t.Fatalf("batch schema = %#v, want %#v", table.batches[0].Spec.Schema, auditSchema())
 	}
 }
 
@@ -95,6 +101,7 @@ func TestIcebergWriterPropagatesCommitFailure(t *testing.T) {
 
 func TestHTTPTableWriterAdapterAuditContract(t *testing.T) {
 	corr := "corr-1"
+	serverURL := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %s", r.Method)
@@ -106,43 +113,17 @@ func TestHTTPTableWriterAdapterAuditContract(t *testing.T) {
 			t.Fatalf("Content-Type = %q", got)
 		}
 
-		var batch AppendBatch
-		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
-			t.Fatalf("decode request: %v", err)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
 		}
-		wantSpec := TableSpec{
-			Catalog:            auditCatalog,
-			Warehouse:          "warehouse-1",
-			Namespace:          "of_audit",
-			Table:              "events",
-			PartitionTransform: "day(at)",
-			SortOrder:          "at ASC",
-			Schema:             auditSchema(),
-		}
-		if !reflect.DeepEqual(batch.Spec, wantSpec) {
-			t.Fatalf("spec = %#v, want %#v", batch.Spec, wantSpec)
-		}
-		if len(batch.Rows) != 1 {
-			t.Fatalf("rows = %#v", batch.Rows)
-		}
-		row := batch.Rows[0]
-		if row["event_id"] != "00000000-0000-7000-8000-000000000001" {
-			t.Fatalf("event_id = %#v", row["event_id"])
-		}
-		if row["at"] != float64(1700000000000000) {
-			t.Fatalf("at = %#v", row["at"])
-		}
-		if row["correlation_id"] != corr {
-			t.Fatalf("correlation_id = %#v", row["correlation_id"])
-		}
-		if row["kind"] != "auth.login.ok" {
-			t.Fatalf("kind = %#v", row["kind"])
-		}
-		if row["payload"] != `{"ok":true}` {
-			t.Fatalf("payload = %#v", row["payload"])
+		wantPayload := `{"spec":{"catalog":"lakekeeper","catalog_url":"` + serverURL + `","warehouse":"warehouse-1","namespace":"of_audit","table":"events","partition_transform":"day(at)","sort_order":"at ASC","schema":[{"id":1,"name":"event_id","type":"uuid","required":true},{"id":2,"name":"at","type":"timestamptz","required":true},{"id":3,"name":"correlation_id","type":"string","required":false},{"id":4,"name":"kind","type":"string","required":true},{"id":5,"name":"payload","type":"string","required":true}]},"rows":[{"at":1700000000000000,"correlation_id":"corr-1","event_id":"00000000-0000-7000-8000-000000000001","kind":"auth.login.ok","payload":"{\"ok\":true}"}]}`
+		if string(body) != wantPayload {
+			t.Fatalf("request payload mismatch\nwant: %s\n got: %s", wantPayload, body)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	serverURL = server.URL
 	defer server.Close()
 
 	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_audit", "events")
@@ -163,6 +144,19 @@ func TestHTTPTableWriterAdapterIsProductionPathNotStub(t *testing.T) {
 	if errors.Is(err, ErrNotImplemented) {
 		t.Fatalf("Append() returned legacy stub error %v", err)
 	}
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterAuditAcceptsAny2xx(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPartialContent)
+	}))
+	defer server.Close()
+
+	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_audit", "events")
+	err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, At: 1, Kind: "kind", Payload: []byte(`{}`)}})
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
