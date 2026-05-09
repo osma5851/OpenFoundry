@@ -1,0 +1,63 @@
+# Dev-only OIDC stub. Lakekeeper 0.12 refuses to boot without a working
+# /.well-known/openid-configuration endpoint; production points at
+# identity-federation-service, dev points at this navikt/mock-oauth2-server
+# instance. Default issuer is `lakekeeper`, default audience matches.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oidc-stub
+  namespace: lakekeeper
+  labels: { app: oidc-stub }
+spec:
+  type: ClusterIP
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+  selector: { app: oidc-stub }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oidc-stub
+  namespace: lakekeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: oidc-stub }
+  template:
+    metadata:
+      labels: { app: oidc-stub }
+    spec:
+      containers:
+        - name: server
+          image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { containerPort: 8080 }
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+            - name: JSON_CONFIG
+              value: |
+                {
+                  "interactiveLogin": false,
+                  "tokenCallbacks": [
+                    {
+                      "issuerId": "lakekeeper",
+                      "requestMappings": [
+                        {
+                          "requestParam": "grant_type",
+                          "match": "*",
+                          "claims": { "aud": ["lakekeeper"], "sub": "lakekeeper-operator" }
+                        }
+                      ]
+                    }
+                  ]
+                }
+          readinessProbe:
+            httpGet: { path: /lakekeeper/.well-known/openid-configuration, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "20m", memory: "128Mi" }
+            limits:   { cpu: "200m", memory: "256Mi" }
