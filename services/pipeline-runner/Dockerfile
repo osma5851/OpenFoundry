@@ -21,7 +21,7 @@ ARG GO_VERSION=1.26.3
 ARG ALPINE_VERSION=3.22
 ARG SPARK_IMAGE=apache/spark:3.5.4-scala2.12-java17-python3-ubuntu
 ARG ICEBERG_VERSION=1.5.2
-ARG SBT_IMAGE=sbtscala/scala-sbt:eclipse-temurin-17.0.10_7_1.10.0_2.12.19
+ARG SBT_IMAGE=sbtscala/scala-sbt:eclipse-temurin-21.0.8_9_1.12.11_2.12.21
 
 ############################################################
 # Stage 1 — modules: pre-warmed Go module graph.

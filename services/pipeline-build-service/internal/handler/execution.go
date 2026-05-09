@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/iceberg"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
+	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
 )
 
 // BuildPlanRepository adapts persisted build/job state into executor.Plan.
@@ -442,6 +444,9 @@ func (r runtimeNodeRunner) Run(ctx context.Context, node executor.NodeContext) (
 		}
 		return r.runPython(ctx, node, payload)
 	}
+	if transformType == "spark" || transformType == "pyspark" {
+		return r.runSpark(ctx, node, payload, transformType)
+	}
 	if r.JobRunner == nil {
 		return executor.NodeResult{}, fmt.Errorf("runner_not_wired:%s", strings.ToLower(logicKind))
 	}
@@ -488,6 +493,133 @@ func (r runtimeNodeRunner) runPython(ctx context.Context, node executor.NodeCont
 		meta["rows_affected"] = *result.RowsAffected
 	}
 	return executor.NodeResult{OutputContentHash: "sha256:" + hex.EncodeToString(hash[:]), Metadata: meta}, nil
+}
+
+// runSpark dispatches a SparkApplication CR via the global SparkClient and
+// blocks until the CR reaches a terminal state. The transform type
+// ("spark" / "pyspark") is forwarded so the SparkApplication template can
+// pick the right ApplicationType (Scala JAR vs PySpark .py entrypoint).
+func (r runtimeNodeRunner) runSpark(ctx context.Context, node executor.NodeContext, payload json.RawMessage, transformType string) (executor.NodeResult, error) {
+	client, ok := currentSparkClient()
+	if !ok {
+		return executor.NodeResult{}, errors.New("spark_client_not_wired: set KUBERNETES_API_URL or run in-cluster to dispatch SparkApplication CRs")
+	}
+
+	var cfg struct {
+		SQL          string                       `json:"sql,omitempty"`
+		Format       string                       `json:"format,omitempty"`
+		Catalog      string                       `json:"catalog,omitempty"`
+		CatalogURI   string                       `json:"catalog_uri,omitempty"`
+		S3Endpoint   string                       `json:"s3_endpoint,omitempty"`
+		Resources    sparkpkg.SparkResourceOverrides `json:"resources,omitempty"`
+		RunnerImage  string                       `json:"runner_image,omitempty"`
+		Application  string                       `json:"application_type,omitempty"`
+	}
+	if len(payload) > 0 {
+		_ = json.Unmarshal(payload, &cfg)
+	}
+
+	pipelineID := strings.ReplaceAll(strings.TrimSpace(node.BuildID.String()), "-", "")
+	if len(pipelineID) > 8 {
+		pipelineID = pipelineID[:8]
+	}
+	if pipelineID == "" {
+		pipelineID = "pl"
+	}
+	runID := strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+
+	outputDataset := ""
+	if len(node.Node.Outputs) > 0 {
+		outputDataset = node.Node.Outputs[0].DatasetRID
+	}
+	if outputDataset == "" {
+		outputDataset = metadataString(node.Node.Metadata, "output_dataset_id")
+	}
+	inputDatasets := outputDatasetRIDs(nil)
+	for _, id := range metadataStringSlice(node.Node.Metadata, "input_dataset_ids") {
+		inputDatasets = append(inputDatasets, id)
+	}
+	inputDataset := ""
+	if len(inputDatasets) > 0 {
+		inputDataset = inputDatasets[0]
+	}
+	if inputDataset == "" {
+		inputDataset = outputDataset
+	}
+
+	appType := sparkpkg.SparkApplicationScala
+	if transformType == "pyspark" || cfg.Application == "Python" {
+		appType = sparkpkg.SparkApplicationPython
+	} else if cfg.Application != "" {
+		appType = sparkpkg.SparkApplicationType(cfg.Application)
+	}
+
+	namespace := strings.TrimSpace(os.Getenv("SPARK_NAMESPACE"))
+	if namespace == "" {
+		namespace = "openfoundry"
+	}
+	image := strings.TrimSpace(cfg.RunnerImage)
+	if image == "" {
+		image = strings.TrimSpace(os.Getenv("PIPELINE_RUNNER_IMAGE"))
+	}
+	if image == "" {
+		image = "localhost:5001/pipeline-runner:dev"
+	}
+
+	input := sparkpkg.PipelineRunInput{
+		PipelineID:          pipelineID,
+		RunID:               runID,
+		Namespace:           namespace,
+		ApplicationType:     appType,
+		PipelineRunnerImage: image,
+		InputDatasetRID:     inputDataset,
+		OutputDatasetRID:    outputDataset,
+		Resources:           cfg.Resources,
+		Catalog:             cfg.Catalog,
+		CatalogURI:          cfg.CatalogURI,
+		S3Endpoint:          cfg.S3Endpoint,
+		InlineSQL:           cfg.SQL,
+		InlineFormat:        cfg.Format,
+	}
+
+	name, err := client.SubmitPipelineRun(ctx, input)
+	if err != nil {
+		return executor.NodeResult{}, fmt.Errorf("submit SparkApplication: %w", err)
+	}
+
+	deadline := time.Now().Add(30 * time.Minute)
+	for {
+		report, err := client.GetPipelineRunStatus(ctx, namespace, name)
+		if err != nil {
+			return executor.NodeResult{}, fmt.Errorf("get SparkApplication status: %w", err)
+		}
+		if report != nil {
+			switch report.Status {
+			case sparkpkg.SparkRunSucceeded:
+				meta := map[string]any{
+					"runtime":           "spark",
+					"spark_application": name,
+					"namespace":         namespace,
+					"output_dataset":    outputDataset,
+				}
+				return executor.NodeResult{OutputContentHash: "sha256:" + name, Metadata: meta}, nil
+			case sparkpkg.SparkRunFailed:
+				msg := "spark application failed"
+				if report.ErrorMessage != nil && *report.ErrorMessage != "" {
+					msg = *report.ErrorMessage
+				}
+				return executor.NodeResult{}, fmt.Errorf("SparkApplication %s failed: %s", name, msg)
+			}
+		}
+		if time.Now().After(deadline) {
+			return executor.NodeResult{}, fmt.Errorf("SparkApplication %s timed out", name)
+		}
+		select {
+		case <-ctx.Done():
+			return executor.NodeResult{}, ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
 }
 
 func pipelineIDFromRequest(r *http.Request) (uuid.UUID, error) {

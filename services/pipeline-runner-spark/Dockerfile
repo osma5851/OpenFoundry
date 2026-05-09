@@ -17,7 +17,7 @@
 #       --target exporter --output type=local,dest=./out .
 #   ls out/pipeline-runner-spark-*.jar
 
-ARG SBT_IMAGE=sbtscala/scala-sbt:eclipse-temurin-17.0.10_7_1.10.0_2.12.19
+ARG SBT_IMAGE=sbtscala/scala-sbt:eclipse-temurin-21.0.8_9_1.12.11_2.12.21
 ARG VERSION=dev
 
 ############################################################
